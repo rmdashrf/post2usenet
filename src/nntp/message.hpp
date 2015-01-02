@@ -37,6 +37,11 @@ namespace p2u
         {
             header article_header;
             message_payload article_payload;
+
+            ~article()
+            {
+                std::cout << "Article with subject; " << article_header.subject << " destroyed!" << std::endl;
+            }
         };
 
         static_assert(std::is_move_constructible<article>::value == 1,

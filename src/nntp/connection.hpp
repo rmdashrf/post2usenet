@@ -15,16 +15,6 @@ namespace p2u
 
         struct connection_info;
 
-        // TODO: Is this necessary?
-        struct protocol_error : public std::runtime_error
-        {
-            public:
-                protocol_error() : std::runtime_error("Protocol error")
-                {
-
-                }
-        };
-
         class article;
 
         enum class post_result
@@ -45,6 +35,7 @@ namespace p2u
                 CONNECTING,
                 CONNECTING_AUTHENTICATING,
                 CONNECTED_AND_AUTHENTICATED,
+                BUSY
             };
 
             public:
@@ -52,26 +43,55 @@ namespace p2u
                 using post_handler = std::function<void(post_result)>;
 
             private:
+                class busy_state_lock : private boost::noncopyable
+                {
+                    state& _parent_state;
+
+                    public:
+                        busy_state_lock(state& _state)
+                            : _parent_state{_state}
+                        {
+
+                        }
+
+                        void lock()
+                        {
+                            _parent_state = state::BUSY;
+                        }
+                        void unlock()
+                        {
+                            _parent_state = state::CONNECTED_AND_AUTHENTICATED;
+                        }
+
+                        ~busy_state_lock()
+                        {
+                            unlock();
+                        }
+                };
+
                 tcp::socket m_sock;
                 state m_state;
                 const connection_info& m_conninfo;
                 boost::asio::streambuf m_readbuf;
 
-                void do_connect(std::function<void()> completion_handler,
-                        boost::asio::yield_context yield);
+                void do_connect(connect_handler completion_handler,
+                                boost::asio::yield_context yield);
 
                 bool do_authenticate(boost::asio::yield_context yield);
 
                 void do_post(std::shared_ptr<article> message,
-                        post_handler handler, boost::asio::yield_context yield);
+                             post_handler handler,
+                             boost::asio::yield_context yield);
 
             public:
                 connection(boost::asio::io_service& io_service,
                            const connection_info& conn);
 
                 void async_connect(connect_handler handler);
-                void async_post(std::shared_ptr<article> message,
+                bool async_post(std::shared_ptr<article> message,
                                 post_handler handler);
+                void close();
+                boost::asio::io_service& get_io_service();
                 ~connection();
         };
     }

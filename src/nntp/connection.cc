@@ -26,7 +26,7 @@ bool p2u::nntp::connection::do_authenticate(boost::asio::yield_context yield)
     std::cout << "[<] " << line << std::endl;
     if (line[0] != '2')
     {
-        throw protocol_error();
+        return false;
     }
 
     std::ostringstream output;
@@ -60,9 +60,10 @@ bool p2u::nntp::connection::do_authenticate(boost::asio::yield_context yield)
     }
 }
 
-void p2u::nntp::connection::do_connect(std::function<void()> completion_handler,
+void p2u::nntp::connection::do_connect(connect_handler completion_handler,
                                        boost::asio::yield_context yield)
 {
+    boost::system::error_code ec;
     try
     {
         m_state = state::CONNECTING;
@@ -105,6 +106,7 @@ void p2u::nntp::connection::do_connect(std::function<void()> completion_handler,
 
         m_state = state::CONNECTED_AND_AUTHENTICATED;
         io_service.post(completion_handler);
+
     } catch (std::exception& e)
     {
         std::cout << "Caught exception: " << e.what() << std::endl;
@@ -114,26 +116,41 @@ void p2u::nntp::connection::do_connect(std::function<void()> completion_handler,
 
 void p2u::nntp::connection::async_connect(connect_handler handler)
 {
+    std::cout << "[entering async_connect] " << std::endl;
     if (m_state == state::DISCONNECTED)
     {
         boost::asio::spawn(m_sock.get_io_service(),
                 std::bind(&connection::do_connect, this,
                     handler, std::placeholders::_1));
-    } else {
-        throw std::runtime_error("Invalid state");
     }
+    std::cout << "[exiting async_connect] " << std::endl;
 }
+
 
 void p2u::nntp::connection::do_post(std::shared_ptr<article> message,
                                        post_handler handler,
                                        boost::asio::yield_context yield)
 {
+    try {
+    busy_state_lock _lck{m_state};
+
+    std::cout << "[Entering do_post]" << std::endl;
     auto& io_service = m_sock.get_io_service();
-    boost::asio::async_write(m_sock, boost::asio::buffer("POST\r\n"), yield);
+
+    std::cout << "[do_post] message: " << message->article_header.subject << std::endl;
+
+
+    std::cout << "[do_post][>] " << "POST" << std::endl;
+    boost::asio::async_write(m_sock, boost::asio::buffer(std::string("POST\r\n")), yield);
+
+    std::cout << "[do_post] message: " << message->article_header.subject << std::endl;
     std::string line = p2u::asio::async_read_line(m_sock, m_readbuf, yield);
+    std::cout << "[do_post][<] " << line << std::endl;
+
     if (line[0] == '4')
     {
         // Posting not permitted
+        std::cout << "Posting not permitted!" << std::endl;
         io_service.post(std::bind(handler, post_result::POSTING_NOT_PERMITTED));
         return;
     }
@@ -143,11 +160,13 @@ void p2u::nntp::connection::do_post(std::shared_ptr<article> message,
     std::ostringstream header;
     message->article_header.write_to(header);
 
+    std::string actual_header = header.str();
+
     std::array<boost::asio::const_buffer, 4> send_parts = {
-            boost::asio::buffer(header.str()), // Header
-            boost::asio::buffer("\r\n"), // Followed by an empty line
+            boost::asio::buffer(actual_header), // Header
+            boost::asio::buffer(std::string("\r\n")), // Followed by an empty line
             boost::asio::buffer(message->article_payload), // Payload
-            boost::asio::buffer("\r\n.\r\n") // Followed by terminator
+            boost::asio::buffer(std::string("\r\n.\r\n")) // Followed by terminator
           };
 
     size_t bytes_sent = boost::asio::async_write(m_sock, send_parts, yield);
@@ -167,17 +186,42 @@ void p2u::nntp::connection::do_post(std::shared_ptr<article> message,
         // Post failure
         io_service.post(std::bind(handler, post_result::POST_FAILURE));
     }
+    std::cout << "[exiting do_post]" << std::endl;
+    } catch (std::exception &e)
+    {
+        std::cout << "Caught exception: " << e.what() << std::endl;
+        m_state = state::DISCONNECTED;
+    }
 }
 
-void p2u::nntp::connection::async_post(std::shared_ptr<article> message,
+bool p2u::nntp::connection::async_post(std::shared_ptr<article> message,
                                        post_handler handler)
 {
+    std::cout << "[entering async_post]" << std::endl;
+    std::cout << "[async post] " << message->article_header.subject << " --> Use count: " << message.use_count() << std::endl;
+
     if (m_state != state::CONNECTED_AND_AUTHENTICATED)
     {
-        throw std::runtime_error("Post on a non connected socket");
+        std::cout << "STATE NOT CONNECTED AND AUTHENTICATED!" << std::endl;
+        std::cout << "[exiting async_post]" << std::endl;
+        return false;
     }
 
     boost::asio::spawn(m_sock.get_io_service(),
             std::bind(&connection::do_post,
                             this, message, handler, std::placeholders::_1));
+    std::cout << "[exiting async_post]" << std::endl;
+    return true;
+}
+
+
+void p2u::nntp::connection::close()
+{
+    std::cout << "!!!! CONNECTION CLOSE CALLED!" << std::endl;
+    m_sock.shutdown(tcp::socket::shutdown_both);
+}
+
+boost::asio::io_service& p2u::nntp::connection::get_io_service()
+{
+    return m_sock.get_io_service();
 }

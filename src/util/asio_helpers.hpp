@@ -15,6 +15,7 @@ namespace p2u
 
             std::istream read_stream(&buffer);
             std::string read_line;
+            read_line.reserve(bytes_read);
 
             std::getline(read_stream, read_line);
 
