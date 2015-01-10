@@ -8,6 +8,9 @@
 #include "connection_info.hpp"
 #include "../util/asio_helpers.hpp"
 
+const std::string CRLF{"\r\n"};
+const std::string MESSAGE_TERM{"\r\n.\r\n"};
+
 p2u::nntp::connection::connection(boost::asio::io_service& io_service,
                                   const connection_info& conn)
     : m_sock {io_service}, m_state {state::DISCONNECTED}, m_conninfo(conn),
@@ -21,7 +24,6 @@ p2u::nntp::connection::connection(boost::asio::io_service& io_service,
 
 p2u::nntp::connection::~connection()
 {
-    std::cout << "connection destructor called " << std::endl;
 }
 
 
@@ -50,9 +52,7 @@ std::string p2u::nntp::connection::read_line(boost::asio::yield_context& yield)
 
 bool p2u::nntp::connection::do_authenticate(boost::asio::yield_context& yield)
 {
-    std::cout << "Starting authentication " << std::endl;
     std::string line = read_line(yield);
-    std::cout << "[<] " << line << std::endl;
     if (line[0] != '2')
     {
         return false;
@@ -61,22 +61,16 @@ bool p2u::nntp::connection::do_authenticate(boost::asio::yield_context& yield)
     std::ostringstream output;
     output << "AUTHINFO USER " << m_conninfo.username << "\r\n";
 
-    std::cout << "[>] " << output.str() << std::endl;
-
     write(boost::asio::buffer(output.str()), yield);
 
     line = read_line(yield);
-
-    std::cout << "[<]" << line << std::endl;
 
     if (boost::starts_with(line, "381"))
     {
         output.str(std::string());
         output << "AUTHINFO PASS " << m_conninfo.password << "\r\n";
-        std::cout << "[>] " << output.str() << std::endl;
         write(boost::asio::buffer(output.str()), yield);
         line = read_line(yield);
-        std::cout << "[<] " << line << std::endl;
     }
 
     if (line[0] == '2')
@@ -150,14 +144,12 @@ void p2u::nntp::connection::do_connect(connect_handler completion_handler,
 
 void p2u::nntp::connection::async_connect(connect_handler handler)
 {
-    std::cout << "[entering async_connect] " << std::endl;
     if (m_state == state::DISCONNECTED)
     {
         boost::asio::spawn(m_strand,
                 std::bind(&connection::do_connect, this,
                     handler, std::placeholders::_1));
     }
-    std::cout << "[exiting async_connect] " << std::endl;
 }
 
 
@@ -168,18 +160,11 @@ void p2u::nntp::connection::do_post(std::shared_ptr<article> message,
     try {
     busy_state_lock _lck{m_state};
 
-    std::cout << "[Entering do_post]" << std::endl;
     auto& io_service = m_sock.get_io_service();
 
-    std::cout << "[do_post] message: " << message->article_header.subject << std::endl;
-
-
-    std::cout << "[do_post][>] " << "POST" << std::endl;
     write(boost::asio::buffer(std::string("POST\r\n")), yield);
 
-    std::cout << "[do_post] message: " << message->article_header.subject << std::endl;
     std::string line = read_line(yield);
-    std::cout << "[do_post][<] " << line << std::endl;
 
     if (line[0] == '4')
     {
@@ -195,7 +180,42 @@ void p2u::nntp::connection::do_post(std::shared_ptr<article> message,
     message->article_header.write_to(header);
 
     std::string actual_header = header.str();
+    size_t expected_length = actual_header.length() + 2 + message->article_payload.size() + 5;
 
+    /*
+    // For some reason using scatter-gather IO along with SSL causes breakage.
+    // For this reason, we will perform yet another expensive copy.
+
+    // Version 1: no scatter gather
+    std::vector<char> payload;
+    payload.reserve(expected_length);
+    auto it = std::copy(actual_header.begin(), actual_header.end(), back_inserter(payload));
+    *it++ = '\r';
+    *it++ = '\n';
+    it = std::copy(message->article_payload.begin(), message->article_payload.end(), it);
+    *it++ = '\r';
+    *it++ = '\n';
+    *it++ = '.';
+    *it++ = '\r';
+    *it++ = '\n';
+    std::cout << "payload is " << payload.size() << " bytes " << std::endl;
+    size_t bytes_sent = write(boost::asio::buffer(payload), yield);
+    */
+
+    /*
+    // Version 2: scatter gather with vector
+    std::vector<boost::asio::const_buffer> payload;
+    payload.push_back(boost::asio::buffer(actual_header));
+    payload.push_back(boost::asio::buffer(CRLF));
+    payload.push_back(boost::asio::buffer(message->article_payload));
+    payload.push_back(boost::asio::buffer(MESSAGE_TERM));
+    size_t bytes_sent = write(payload, yield);
+    */
+
+    /*
+    // Version 3: scatter gather with array (Broken)
+    // This is broken because boost::asio::buffer does not make a copy of the data
+    // it has received. std::string("\r\n") is a temporary, which will go out of scope
     std::array<boost::asio::const_buffer, 4> send_parts = {
             boost::asio::buffer(actual_header), // Header
             boost::asio::buffer(std::string("\r\n")), // Followed by an empty line
@@ -204,25 +224,41 @@ void p2u::nntp::connection::do_post(std::shared_ptr<article> message,
           };
 
     size_t bytes_sent = write(send_parts, yield);
+    */
 
-    std::cout << "Sent a total of " << std::dec << bytes_sent << " bytes " << std::endl;
+    // Version 4: Scatter gather with array
+    std::array<boost::asio::const_buffer, 4> send_parts = {
+            boost::asio::buffer(actual_header), // Header
+            boost::asio::buffer(CRLF), // Followed by an empty line
+            boost::asio::buffer(message->article_payload), // Payload
+            boost::asio::buffer(MESSAGE_TERM) // Followed by terminator
+          };
 
-    std::cout << "Connection " << this << " about to read the result of POST" << std::endl;
+    size_t bytes_sent = write(send_parts, yield);
+
+
+    std::cout << "Connection: " << m_sock.native_handle() << ": Article sent: " << message->article_header.subject << " Expected: " << std::dec << expected_length << " Actually sent " << bytes_sent << std::endl;
+    if (bytes_sent != expected_length)
+    {
+        std::cout << "Connection: " << m_sock.native_handle() << ": Bytes sent mismatch! Expected: " << std::dec << expected_length << " but actually only sent " << bytes_sent << std::endl;
+    }
+
     // Try to read the result
     boost::asio::deadline_timer timer{m_sock.get_io_service()};
-    timer.expires_from_now(boost::posix_time::seconds(10));
-    timer.async_wait([this](const boost::system::error_code& n)
+    timer.expires_from_now(boost::posix_time::seconds(5));
+    timer.async_wait([this, message, &actual_header](const boost::system::error_code& n)
             {
                 if (!n)
                 {
-                    std::cout << "READ LINE EXPIRED!!!" << std::endl;
-                    this->m_sock.cancel();
+                    std::cout << "Connection " << std::dec << m_sock.native_handle() << " timed out on reading the result line after posting." << std::endl;
+                    std::cout << "It was trying to post: " << std::endl << actual_header << std::endl;
+                    m_sock.cancel();
                 }
             });
 
     line = read_line(yield);
     timer.cancel();
-    std::cout << "(Connection: " << this << ")[<] " << line << std::endl;
+
     if (line[0] == '2')
     {
         // Post successful

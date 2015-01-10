@@ -158,13 +158,15 @@ int main(int argc, const char* argv[])
 
     std::function<void(const boost::system::error_code& )> timercb = [&timercb, &stats_printer, &articles](const boost::system::error_code& ec)
             {
+                if (!ec) {
                 std::cout << articles.size() << " articles left..." << std::endl;
                 stats_printer.expires_from_now(boost::posix_time::seconds(2));
                 if (articles.size() > 0)
                     stats_printer.async_wait(timercb);
+                }
             };
 
-    stats_printer.async_wait(timercb);
+//    stats_printer.async_wait(timercb);
     io_service.run();
     return 0;
 }

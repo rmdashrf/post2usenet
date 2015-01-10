@@ -96,7 +96,7 @@ namespace p2u
 
                 template <class ConstBufferSequence>
                 size_t write(const ConstBufferSequence& buffers,
-                             boost::asio::yield_context& yield)
+                             boost::asio::yield_context yield)
                 {
                     if (m_sslstream)
                     {
