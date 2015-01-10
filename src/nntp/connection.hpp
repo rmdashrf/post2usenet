@@ -12,8 +12,11 @@ namespace p2u
 {
     namespace nntp
     {
-
         struct connection_info;
+
+        extern const std::string CRLF;
+        extern const std::string MESSAGE_TERM;
+        extern const std::string POST;
 
         class article;
 
@@ -23,6 +26,7 @@ namespace p2u
             POSTING_NOT_PERMITTED,
             POST_FAILURE,
         };
+
 
         class connection : private boost::noncopyable
         {

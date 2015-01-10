@@ -8,8 +8,9 @@
 #include "connection_info.hpp"
 #include "../util/asio_helpers.hpp"
 
-const std::string CRLF{"\r\n"};
-const std::string MESSAGE_TERM{"\r\n.\r\n"};
+const std::string p2u::nntp::CRLF = {"\r\n"};
+const std::string p2u::nntp::MESSAGE_TERM = {"\r\n.\r\n"};
+const std::string p2u::nntp::POST = {"POST\r\n"};
 
 p2u::nntp::connection::connection(boost::asio::io_service& io_service,
                                   const connection_info& conn)
@@ -162,7 +163,7 @@ void p2u::nntp::connection::do_post(std::shared_ptr<article> message,
 
     auto& io_service = m_sock.get_io_service();
 
-    write(boost::asio::buffer(std::string("POST\r\n")), yield);
+    write(boost::asio::buffer(POST), yield);
 
     std::string line = read_line(yield);
 
@@ -182,51 +183,6 @@ void p2u::nntp::connection::do_post(std::shared_ptr<article> message,
     std::string actual_header = header.str();
     size_t expected_length = actual_header.length() + 2 + message->article_payload.size() + 5;
 
-    /*
-    // For some reason using scatter-gather IO along with SSL causes breakage.
-    // For this reason, we will perform yet another expensive copy.
-
-    // Version 1: no scatter gather
-    std::vector<char> payload;
-    payload.reserve(expected_length);
-    auto it = std::copy(actual_header.begin(), actual_header.end(), back_inserter(payload));
-    *it++ = '\r';
-    *it++ = '\n';
-    it = std::copy(message->article_payload.begin(), message->article_payload.end(), it);
-    *it++ = '\r';
-    *it++ = '\n';
-    *it++ = '.';
-    *it++ = '\r';
-    *it++ = '\n';
-    std::cout << "payload is " << payload.size() << " bytes " << std::endl;
-    size_t bytes_sent = write(boost::asio::buffer(payload), yield);
-    */
-
-    /*
-    // Version 2: scatter gather with vector
-    std::vector<boost::asio::const_buffer> payload;
-    payload.push_back(boost::asio::buffer(actual_header));
-    payload.push_back(boost::asio::buffer(CRLF));
-    payload.push_back(boost::asio::buffer(message->article_payload));
-    payload.push_back(boost::asio::buffer(MESSAGE_TERM));
-    size_t bytes_sent = write(payload, yield);
-    */
-
-    /*
-    // Version 3: scatter gather with array (Broken)
-    // This is broken because boost::asio::buffer does not make a copy of the data
-    // it has received. std::string("\r\n") is a temporary, which will go out of scope
-    std::array<boost::asio::const_buffer, 4> send_parts = {
-            boost::asio::buffer(actual_header), // Header
-            boost::asio::buffer(std::string("\r\n")), // Followed by an empty line
-            boost::asio::buffer(message->article_payload), // Payload
-            boost::asio::buffer(std::string("\r\n.\r\n")) // Followed by terminator
-          };
-
-    size_t bytes_sent = write(send_parts, yield);
-    */
-
-    // Version 4: Scatter gather with array
     std::array<boost::asio::const_buffer, 4> send_parts = {
             boost::asio::buffer(actual_header), // Header
             boost::asio::buffer(CRLF), // Followed by an empty line
