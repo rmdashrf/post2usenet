@@ -11,6 +11,7 @@
 #include "nntp/connection.hpp"
 #include "nntp/message.hpp"
 
+
 std::string get_run_nonce()
 {
     std::string ret;
@@ -49,11 +50,13 @@ void post_next_article(p2u::nntp::connection* conn,
 {
     std::cout << "[entering post_next_article]" << std::endl;
     std::cout << "Post next article on connection: " << std::hex << conn << std::endl;
-
+    std::cout << "articles size: " << articles.size() << std::endl;
     if (articles.size() < 1)
     {
-        std::cout << "[exiting post_next_article]" << std::endl;
+        std::cout << "No more articles to post. calling close" << std::endl;
         conn->close();
+        std::cout << "[exiting post_next_article]" << std::endl;
+        return;
     }
 
     auto article = articles.front();
@@ -70,6 +73,10 @@ void post_next_article(p2u::nntp::connection* conn,
                     if (articles.size() > 0)
                     {
                         conn->get_io_service().post(std::bind(&post_next_article, conn, std::ref(articles)));
+                    } else
+                    {
+                        std::cout << "CLosing connection " << conn << std::endl;
+                        conn->close();
                     }
                 }))
                 {
@@ -82,9 +89,9 @@ void post_next_article(p2u::nntp::connection* conn,
 
 int main(int argc, const char* argv[])
 {
-    if (argc < 5)
+    if (argc < 6)
     {
-        std::cout << "Usage: " << argv[0] << " address port username password" << std::endl;
+        std::cout << "Usage: " << argv[0] << " address port username password usetls" << std::endl;
         return 1;
     }
 
@@ -111,13 +118,18 @@ int main(int argc, const char* argv[])
     conn_info.password = argv[4];
     conn_info.serveraddr = argv[1];
     conn_info.port = static_cast<std::uint16_t>(std::stoul(argv[2]));
-    conn_info.tls = false;
+    conn_info.tls = std::stol(argv[5]) > 0;
+
+    if (conn_info.tls)
+    {
+        std::cout << "Using tls!" << std::endl;
+    }
 
 
     std::vector<std::unique_ptr<p2u::nntp::connection>> connections;
     std::deque<std::shared_ptr<p2u::nntp::article>> articles;
 
-    const int NUM_ARTICLES = 30;
+    const int NUM_ARTICLES = 80;
     const int NUM_CONNECTIONS = 15;
 
     for (int i = 0; i < NUM_ARTICLES; ++i)
@@ -141,6 +153,18 @@ int main(int argc, const char* argv[])
                 });
     }
 
+    boost::asio::deadline_timer stats_printer{io_service};
+    stats_printer.expires_from_now(boost::posix_time::seconds(2));
+
+    std::function<void(const boost::system::error_code& )> timercb = [&timercb, &stats_printer, &articles](const boost::system::error_code& ec)
+            {
+                std::cout << articles.size() << " articles left..." << std::endl;
+                stats_printer.expires_from_now(boost::posix_time::seconds(2));
+                if (articles.size() > 0)
+                    stats_printer.async_wait(timercb);
+            };
+
+    stats_printer.async_wait(timercb);
     io_service.run();
     return 0;
 }

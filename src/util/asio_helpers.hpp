@@ -8,16 +8,17 @@ namespace p2u
 {
     namespace asio
     {
-        template <class AsyncReadStream, class Allocator, class Handler>
-        std::string async_read_line(AsyncReadStream& stream, boost::asio::basic_streambuf<Allocator>& buffer, boost::asio::basic_yield_context<Handler> yield)
+        template <class AsyncReadStream>
+        std::string async_read_line(AsyncReadStream& stream, boost::asio::streambuf& buffer, boost::asio::yield_context& yield)
         {
-            size_t bytes_read = boost::asio::async_read_until(stream, buffer, "\n", yield);
+            size_t bytes_read = boost::asio::async_read_until(stream, buffer, '\n', yield);
+            //buffer.commit(bytes_read);
+            std::string read_line(boost::asio::buffers_begin(buffer.data()), boost::asio::buffers_end(buffer.data()) + bytes_read);
+            //std::istream read_stream(&buffer);
+            //std::string read_line;
+            //read_line.reserve(bytes_read);
 
-            std::istream read_stream(&buffer);
-            std::string read_line;
-            read_line.reserve(bytes_read);
-
-            std::getline(read_stream, read_line);
+            //std::getline(read_stream, read_line);
 
             buffer.consume(bytes_read);
 

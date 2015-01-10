@@ -27,7 +27,7 @@ namespace p2u
         class connection : private boost::noncopyable
         {
             using ssl_context = boost::asio::ssl::context;
-            using ssl_stream = boost::asio::ssl::stream<tcp::socket>;
+            using ssl_stream = boost::asio::ssl::stream<tcp::socket&>;
 
             enum class state
             {
@@ -43,6 +43,10 @@ namespace p2u
                 using post_handler = std::function<void(post_result)>;
 
             private:
+                /**
+                 * Not really a lock, but it changes our state between
+                 * CONNECTED_AND_AUTHENTICATED to BUSY in an RAII compatible
+                 * manner */
                 class busy_state_lock : private boost::noncopyable
                 {
                     state& _parent_state;
@@ -70,18 +74,40 @@ namespace p2u
                 };
 
                 tcp::socket m_sock;
-                state m_state;
+                state m_state; // because boost MSL would be overkill
                 const connection_info& m_conninfo;
                 boost::asio::streambuf m_readbuf;
+                std::unique_ptr<ssl_context> m_sslctx;
+                std::unique_ptr<ssl_stream> m_sslstream;
+                boost::asio::strand m_strand;
 
                 void do_connect(connect_handler completion_handler,
                                 boost::asio::yield_context yield);
 
-                bool do_authenticate(boost::asio::yield_context yield);
+                bool do_authenticate(boost::asio::yield_context& yield);
 
                 void do_post(std::shared_ptr<article> message,
                              post_handler handler,
                              boost::asio::yield_context yield);
+
+                void initSSL();
+
+                std::string read_line(boost::asio::yield_context& yield);
+
+                template <class ConstBufferSequence>
+                size_t write(const ConstBufferSequence& buffers,
+                             boost::asio::yield_context& yield)
+                {
+                    if (m_sslstream)
+                    {
+                        return boost::asio::async_write(*m_sslstream, buffers,
+                                                        yield);
+                    }
+                    else
+                    {
+                        return boost::asio::async_write(m_sock, buffers, yield);
+                    }
+                }
 
             public:
                 connection(boost::asio::io_service& io_service,
