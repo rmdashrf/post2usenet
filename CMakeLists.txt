@@ -11,7 +11,7 @@ find_package(OpenSSL REQUIRED)
 
 include_directories(${Boost_INCLUDE_DIRS})
 
-set (CMAKE_CXX_FLAGS "-g -Wall -std=c++11")
+set (CMAKE_CXX_FLAGS "-g -pthread -Wall -std=c++11")
 
 set (PROJECT_SOURCES "./src/main.cc"
                      "./src/nntp/connection.cc"
