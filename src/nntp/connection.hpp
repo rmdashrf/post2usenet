@@ -90,7 +90,7 @@ namespace p2u
 
                 bool do_authenticate(boost::asio::yield_context& yield);
 
-                void do_post(std::shared_ptr<article> message,
+                void do_post(const std::shared_ptr<article>& message,
                              post_handler handler,
                              boost::asio::yield_context yield);
 
@@ -118,7 +118,7 @@ namespace p2u
                            const connection_info& conn);
 
                 void async_connect(connect_handler handler);
-                bool async_post(std::shared_ptr<article> message,
+                bool async_post(const std::shared_ptr<article>& message,
                                 post_handler handler);
                 void close();
                 boost::asio::io_service& get_io_service();

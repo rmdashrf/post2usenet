@@ -154,9 +154,9 @@ void p2u::nntp::connection::async_connect(connect_handler handler)
 }
 
 
-void p2u::nntp::connection::do_post(std::shared_ptr<article> message,
-                                       post_handler handler,
-                                       boost::asio::yield_context yield)
+void p2u::nntp::connection::do_post(const std::shared_ptr<article>& message,
+                                    post_handler handler,
+                                    boost::asio::yield_context yield)
 {
     try {
     busy_state_lock _lck{m_state};
@@ -235,7 +235,7 @@ void p2u::nntp::connection::do_post(std::shared_ptr<article> message,
     }
 }
 
-bool p2u::nntp::connection::async_post(std::shared_ptr<article> message,
+bool p2u::nntp::connection::async_post(const std::shared_ptr<article>& message,
                                        post_handler handler)
 {
     std::cout << "[entering async_post]" << std::endl;
