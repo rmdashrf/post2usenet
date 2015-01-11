@@ -87,10 +87,10 @@ void p2u::nntp::connection::do_connect(connect_handler completion_handler,
                                        boost::asio::yield_context yield)
 {
     boost::system::error_code ec;
+    auto& io_service = m_sock.get_io_service();
     try
     {
         m_state = state::CONNECTING;
-        auto& io_service = m_sock.get_io_service();
 
         tcp::resolver resolver{io_service};
         tcp::resolver::query query(m_conninfo.serveraddr, "");
@@ -121,24 +121,26 @@ void p2u::nntp::connection::do_connect(connect_handler completion_handler,
 
         if (m_sslstream)
         {
-            std::cout << "TLS enabled. Performing handshake: " << std::endl;
             m_sslstream->async_handshake(m_sslstream->client, yield);
-            std::cout << "Finished handshaking " << std::endl;
         }
 
         if (do_authenticate(yield))
         {
             std::cout << "Authentication successful " << std::endl;
+            m_state = state::CONNECTED_AND_AUTHENTICATED;
+            io_service.post(std::bind(completion_handler, connect_result::CONNECT_SUCCESS));
         } else {
             std::cout << "Authentication failed " << std::endl;
+            m_state = state::DISCONNECTED;
+            io_service.post(std::bind(completion_handler, connect_result::INVALID_CREDENTIALS));
         }
 
-        m_state = state::CONNECTED_AND_AUTHENTICATED;
-        io_service.post(completion_handler);
 
     } catch (std::exception& e)
     {
         std::cout << "Caught exception: " << e.what() << std::endl;
+        io_service.post(std::bind(completion_handler,
+                    connect_result::FATAL_CONNECT_ERROR));
         m_state = state::DISCONNECTED;
     }
 }
@@ -181,7 +183,8 @@ void p2u::nntp::connection::do_post(const std::shared_ptr<article>& message,
     message->article_header.write_to(header);
 
     std::string actual_header = header.str();
-    size_t expected_length = actual_header.length() + 2 + message->article_payload.size() + 5;
+    size_t expected_length = actual_header.length() + 2 +
+        message->article_payload.size() + 5;
 
     std::array<boost::asio::const_buffer, 4> send_parts = {
             boost::asio::buffer(actual_header), // Header
@@ -257,8 +260,14 @@ bool p2u::nntp::connection::async_post(const std::shared_ptr<article>& message,
 
 void p2u::nntp::connection::close()
 {
-    std::cout << "!!!! CONNECTION CLOSE CALLED!" << std::endl;
+    if (m_state == state::DISCONNECTED)
+        return;
     m_sock.shutdown(tcp::socket::shutdown_both);
+    size_t data_left = m_readbuf.size();
+    if (data_left > 0)
+    {
+        m_readbuf.consume(data_left);
+    }
 }
 
 boost::asio::io_service& p2u::nntp::connection::get_io_service()

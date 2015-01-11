@@ -25,6 +25,14 @@ namespace p2u
             POST_SUCCESS,
             POSTING_NOT_PERMITTED,
             POST_FAILURE,
+            POST_FAILURE_CONNECTION_ERROR
+        };
+
+        enum class connect_result
+        {
+            FATAL_CONNECT_ERROR,
+            INVALID_CREDENTIALS,
+            CONNECT_SUCCESS
         };
 
 
@@ -43,7 +51,7 @@ namespace p2u
             };
 
             public:
-                using connect_handler = std::function<void()>;
+                using connect_handler = std::function<void(connect_result)>;
                 using post_handler = std::function<void(post_result)>;
 
             private:
@@ -59,7 +67,7 @@ namespace p2u
                         busy_state_lock(state& _state)
                             : _parent_state{_state}
                         {
-
+                            lock();
                         }
 
                         void lock()
