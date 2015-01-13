@@ -47,6 +47,7 @@ namespace p2u
 
                 // Async-IO service
                 boost::asio::io_service m_iosvc;
+                std::unique_ptr<boost::asio::io_service::work> m_work;
 
                 // The big fat mutex that we have to use that guards the ready
                 // and busy lists along with the queue.

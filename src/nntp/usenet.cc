@@ -145,11 +145,12 @@ void p2u::nntp::usenet::join()
 
 void p2u::nntp::usenet::stop()
 {
-    m_iosvc.stop();
+    m_work.reset();
 }
 
 void p2u::nntp::usenet::start()
 {
+    m_work = std::make_unique<boost::asio::io_service::work>(m_iosvc);
     for (size_t i = 0; i < m_numthreads; ++i)
     {
         m_iothreads.emplace_back([this](){ m_iosvc.run(); });

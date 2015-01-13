@@ -119,6 +119,7 @@ int main(int argc, const char* argv[])
         total_payload_bytes += article->article_payload.size();
     }
 
+    poster.stop();
     poster.join();
     auto end = std::chrono::high_resolution_clock::now();
 
