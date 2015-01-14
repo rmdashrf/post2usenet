@@ -113,7 +113,7 @@ int main(int argc, const char* argv[])
     for (int i = 0; i < num_articles; ++i)
     {
         auto article = std::make_shared<p2u::nntp::article>();
-        article->article_header = {"newsposter@tester.com", {"misc.test"}, get_subject(run_nonce, i+1, num_articles), {}};
+        article->article_header = {"newsposter@tester.com", {"alt.binaries.test"}, get_subject(run_nonce, i+1, num_articles), {}};
         article->article_payload = get_body(run_nonce, i+1, num_articles, payload_size);
         poster.enqueue(article);
         total_payload_bytes += article->article_payload.size();

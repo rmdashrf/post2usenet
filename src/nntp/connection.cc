@@ -192,10 +192,11 @@ void p2u::nntp::connection::do_post(const std::shared_ptr<article>& message,
                                     post_handler handler,
                                     boost::asio::yield_context yield)
 {
-    try {
+    auto& io_service = m_sock.get_io_service();
+    try
+    {
         busy_state_lock _lck{m_state};
 
-        auto& io_service = m_sock.get_io_service();
 
         write(boost::asio::buffer(protocol::POST), yield);
 
@@ -239,10 +240,13 @@ void p2u::nntp::connection::do_post(const std::shared_ptr<article>& message,
             io_service.post(std::bind(handler, post_result::POST_FAILURE));
         }
 
-    } catch (std::exception &e)
+    }
+    catch (std::exception &e)
     {
         std::cout << "Caught exception: " << e.what() << std::endl;
-        m_state = state::DISCONNECTED;
+        close();
+        io_service.post(std::bind(handler,
+                    post_result::POST_FAILURE_CONNECTION_ERROR));
     }
 }
 
@@ -266,14 +270,23 @@ void p2u::nntp::connection::close()
     if (m_state == state::DISCONNECTED)
         return;
 
-    m_sock.shutdown(tcp::socket::shutdown_both);
-    m_sock.close();
+    try
+    {
+        m_sock.shutdown(tcp::socket::shutdown_both);
+        m_sock.close();
+    }
+    catch (std::exception& e)
+    {
+
+    }
 
     size_t data_left = m_readbuf.size();
     if (data_left > 0)
     {
         m_readbuf.consume(data_left);
     }
+
+    m_state = state::DISCONNECTED;
 }
 
 boost::asio::io_service& p2u::nntp::connection::get_io_service()
