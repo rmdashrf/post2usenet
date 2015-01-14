@@ -20,6 +20,7 @@ namespace p2u
             extern const std::string POST;
             extern const std::string AUTHINFOUSER;
             extern const std::string AUTHINFOPASS;
+            extern const std::string STAT;
         }
 
         class article;
@@ -37,6 +38,13 @@ namespace p2u
             FATAL_CONNECT_ERROR,
             INVALID_CREDENTIALS,
             CONNECT_SUCCESS
+        };
+
+        enum class stat_result
+        {
+            ARTICLE_EXISTS,
+            INVALID_ARTICLE,
+            CONNECTION_ERROR
         };
 
 
@@ -57,6 +65,7 @@ namespace p2u
             public:
                 using connect_handler = std::function<void(connect_result)>;
                 using post_handler = std::function<void(post_result)>;
+                using stat_handler = std::function<void(stat_result)>;
 
             private:
                 /**
@@ -108,6 +117,10 @@ namespace p2u
                              post_handler handler,
                              boost::asio::yield_context yield);
 
+                void do_stat(const std::string& messageid,
+                             stat_handler handler,
+                             boost::asio::yield_context yield);
+
                 void initSSL();
 
                 std::string read_line(boost::asio::yield_context& yield);
@@ -131,6 +144,8 @@ namespace p2u
 
                 void send_authinfo_username(boost::asio::yield_context& yield);
                 void send_authinfo_password(boost::asio::yield_context& yield);
+                void send_stat_cmd(const std::string& mid,
+                                   boost::asio::yield_context& yield);
 
             public:
                 connection(boost::asio::io_service& io_service,
@@ -139,6 +154,9 @@ namespace p2u
                 void async_connect(connect_handler handler);
                 bool async_post(const std::shared_ptr<article>& message,
                                 post_handler handler);
+
+                bool async_stat(const std::string& messageid,
+                                stat_handler handler);
                 void close();
                 boost::asio::io_service& get_io_service();
                 ~connection();

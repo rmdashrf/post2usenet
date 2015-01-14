@@ -13,6 +13,7 @@ const std::string p2u::nntp::protocol::MESSAGE_TERM{"\r\n.\r\n"};
 const std::string p2u::nntp::protocol::POST{"POST\r\n"};
 const std::string p2u::nntp::protocol::AUTHINFOUSER{"AUTHINFO USER "};
 const std::string p2u::nntp::protocol::AUTHINFOPASS{"AUTHINFO PASS "};
+const std::string p2u::nntp::protocol::STAT{"STAT "};
 
 p2u::nntp::connection::connection(boost::asio::io_service& io_service,
                                   const connection_info& conn)
@@ -264,6 +265,59 @@ bool p2u::nntp::connection::async_post(const std::shared_ptr<article>& message,
     return true;
 }
 
+void p2u::nntp::connection::send_stat_cmd(const std::string& mid,
+                                          boost::asio::yield_context& yield)
+{
+    std::array<boost::asio::const_buffer, 3> parts = {
+        boost::asio::buffer(protocol::STAT),
+        boost::asio::buffer(mid),
+        boost::asio::buffer(protocol::CRLF)
+    };
+
+    write(parts, yield);
+}
+
+void p2u::nntp::connection::do_stat(const std::string& mid,
+                                    stat_handler handler,
+                                    boost::asio::yield_context yield)
+{
+    auto& io_service = m_sock.get_io_service();
+
+    try
+    {
+        send_stat_cmd(mid, yield);
+        std::string line = read_line(yield);
+
+        if (line[0] == '2')
+        {
+            // 223 article exists
+            io_service.post(std::bind(handler, stat_result::ARTICLE_EXISTS));
+        }
+        else
+        {
+            // 430 no article with that message-id
+            io_service.post(std::bind(handler, stat_result::INVALID_ARTICLE));
+        }
+    }
+    catch (std::exception& e)
+    {
+        io_service.post(std::bind(handler, stat_result::CONNECTION_ERROR));
+    }
+}
+
+bool p2u::nntp::connection::async_stat(const std::string& mid,
+                                       stat_handler handler)
+{
+    if (m_state != state::CONNECTED_AND_AUTHENTICATED)
+    {
+        return false;
+    }
+
+    boost::asio::spawn(m_strand, std::bind(&connection::do_stat, this, mid,
+                handler, std::placeholders::_1));
+    return true;
+}
+
 
 void p2u::nntp::connection::close()
 {
@@ -303,3 +357,4 @@ void p2u::nntp::connection::cancel_sock_operation(const boost::system::error_cod
         m_sock.cancel();
     }
 }
+
