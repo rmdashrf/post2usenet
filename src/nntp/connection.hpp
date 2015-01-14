@@ -14,9 +14,13 @@ namespace p2u
     {
         struct connection_info;
 
-        extern const std::string CRLF;
-        extern const std::string MESSAGE_TERM;
-        extern const std::string POST;
+        namespace protocol {
+            extern const std::string CRLF;
+            extern const std::string MESSAGE_TERM;
+            extern const std::string POST;
+            extern const std::string AUTHINFOUSER;
+            extern const std::string AUTHINFOPASS;
+        }
 
         class article;
 
@@ -93,6 +97,8 @@ namespace p2u
                 std::unique_ptr<ssl_stream> m_sslstream;
                 boost::asio::strand m_strand;
 
+                boost::asio::deadline_timer m_timer;
+
                 void do_connect(connect_handler completion_handler,
                                 boost::asio::yield_context yield);
 
@@ -105,6 +111,8 @@ namespace p2u
                 void initSSL();
 
                 std::string read_line(boost::asio::yield_context& yield);
+
+                void cancel_sock_operation(const boost::system::error_code& ec);
 
                 template <class ConstBufferSequence>
                 size_t write(const ConstBufferSequence& buffers,
@@ -120,6 +128,9 @@ namespace p2u
                         return boost::asio::async_write(m_sock, buffers, yield);
                     }
                 }
+
+                void send_authinfo_username(boost::asio::yield_context& yield);
+                void send_authinfo_password(boost::asio::yield_context& yield);
 
             public:
                 connection(boost::asio::io_service& io_service,
