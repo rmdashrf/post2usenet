@@ -161,18 +161,18 @@ void p2u::nntp::connection::do_connect(connect_handler completion_handler,
         {
             std::cout << "Authentication successful " << std::endl;
             m_state = state::CONNECTED_AND_AUTHENTICATED;
-            io_service.post(std::bind(completion_handler, connect_result::CONNECT_SUCCESS));
+            m_strand.post(std::bind(completion_handler, connect_result::CONNECT_SUCCESS));
         } else {
             std::cout << "Authentication failed " << std::endl;
             m_state = state::DISCONNECTED;
-            io_service.post(std::bind(completion_handler, connect_result::INVALID_CREDENTIALS));
+            m_strand.post(std::bind(completion_handler, connect_result::INVALID_CREDENTIALS));
         }
 
 
     } catch (std::exception& e)
     {
         std::cout << "Caught exception: " << e.what() << std::endl;
-        io_service.post(std::bind(completion_handler,
+        m_strand.post(std::bind(completion_handler,
                     connect_result::FATAL_CONNECT_ERROR));
         m_state = state::DISCONNECTED;
     }
@@ -193,7 +193,6 @@ void p2u::nntp::connection::do_post(const std::shared_ptr<article>& message,
                                     post_handler handler,
                                     boost::asio::yield_context yield)
 {
-    auto& io_service = m_sock.get_io_service();
     try
     {
         busy_state_lock _lck{m_state};
@@ -205,7 +204,7 @@ void p2u::nntp::connection::do_post(const std::shared_ptr<article>& message,
 
         if (line[0] == '4')
         {
-            io_service.post(std::bind(handler, post_result::POSTING_NOT_PERMITTED));
+            m_strand.post(std::bind(handler, post_result::POSTING_NOT_PERMITTED));
             return;
         }
 
@@ -235,10 +234,10 @@ void p2u::nntp::connection::do_post(const std::shared_ptr<article>& message,
                 << ": Article sent: "
                 << message->article_header.subject << std::endl;
 
-            io_service.post(std::bind(handler, post_result::POST_SUCCESS));
+            m_strand.post(std::bind(handler, post_result::POST_SUCCESS));
         } else
         {
-            io_service.post(std::bind(handler, post_result::POST_FAILURE));
+            m_strand.post(std::bind(handler, post_result::POST_FAILURE));
         }
 
     }
@@ -246,7 +245,7 @@ void p2u::nntp::connection::do_post(const std::shared_ptr<article>& message,
     {
         std::cout << "Caught exception: " << e.what() << std::endl;
         close();
-        io_service.post(std::bind(handler,
+        m_strand.post(std::bind(handler,
                     post_result::POST_FAILURE_CONNECTION_ERROR));
     }
 }
@@ -281,8 +280,6 @@ void p2u::nntp::connection::do_stat(const std::string& mid,
                                     stat_handler handler,
                                     boost::asio::yield_context yield)
 {
-    auto& io_service = m_sock.get_io_service();
-
     try
     {
         send_stat_cmd(mid, yield);
@@ -291,17 +288,17 @@ void p2u::nntp::connection::do_stat(const std::string& mid,
         if (line[0] == '2')
         {
             // 223 article exists
-            io_service.post(std::bind(handler, stat_result::ARTICLE_EXISTS));
+            m_strand.post(std::bind(handler, stat_result::ARTICLE_EXISTS));
         }
         else
         {
             // 430 no article with that message-id
-            io_service.post(std::bind(handler, stat_result::INVALID_ARTICLE));
+            m_strand.post(std::bind(handler, stat_result::INVALID_ARTICLE));
         }
     }
     catch (std::exception& e)
     {
-        io_service.post(std::bind(handler, stat_result::CONNECTION_ERROR));
+        m_strand.post(std::bind(handler, stat_result::CONNECTION_ERROR));
     }
 }
 
