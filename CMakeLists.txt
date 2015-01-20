@@ -5,7 +5,7 @@ set(Boost_USE_STATIC_LIBS OFF)
 set(Boost_USE_MULTITHREADED ON)
 set(Boost_USE_STATIC_RUNTIME OFF)
 
-find_package(Boost 1.57.0 REQUIRED COMPONENTS system coroutine)
+find_package(Boost 1.57.0 REQUIRED COMPONENTS system coroutine filesystem)
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
 

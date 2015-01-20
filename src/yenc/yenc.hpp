@@ -63,6 +63,8 @@ namespace p2u
                     return it;
 
                 }
+
+                size_t get_line_length() const;
         };
     }
 }

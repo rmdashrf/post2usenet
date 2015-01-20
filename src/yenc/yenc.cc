@@ -18,3 +18,7 @@ p2u::yenc::encoder::encoder(size_t linelength)
 {
 
 }
+size_t p2u::yenc::encoder::encoder::get_line_length() const
+{
+    return m_linelength;
+}

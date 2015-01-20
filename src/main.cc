@@ -82,7 +82,7 @@ int main(int argc, const char* argv[])
     std::ios_base::sync_with_stdio(false);
     if (argc < 6)
     {
-        std::cout << "Usage: " << argv[0] << " address port username password usetls num_connections num_articles payload_size" << std::endl;
+        std::cout << "Usage: " << argv[0] << " address port username password usetls num_connections num_articles payload_size message_queue_max_size io_threads" << std::endl;
         return 1;
     }
 
@@ -96,13 +96,14 @@ int main(int argc, const char* argv[])
 
     int num_articles = argc >= 8 ? std::stoi(argv[7]) : 100;
     size_t num_connections = argc >= 7 ? std::stol(argv[6]) : 15;
+    size_t queue_max_size = argc >= 10 ? std::stoul(argv[9]) : 0;
+    size_t io_threads = argc >= 11 ? std::stoul(argv[10]) : 1;
 
     std::cout << "Posting " << num_articles << " each with payload size "
         << payload_size << " among " << num_connections << " connections."
         << std::endl;
 
-    p2u::nntp::usenet poster{1}; // Use 1 IO thread
-    // TODO: Race condition here
+    p2u::nntp::usenet poster{io_threads, queue_max_size}; // Use 1 IO thread
     poster.add_connections(conn_info, num_connections);
     poster.start();
 
