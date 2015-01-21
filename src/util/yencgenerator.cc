@@ -19,7 +19,7 @@ p2u::util::yencgenerator::yencgenerator(const boost::filesystem::path& path,
     }
 
     m_filesize = boost::filesystem::file_size(m_filepath);
-    m_numparts  = m_filesize / m_articlesize;
+    m_numparts = m_filesize / m_articlesize;
     if (m_filesize % m_articlesize != 0) {
         ++m_numparts;
     }

@@ -211,16 +211,26 @@ void p2u::nntp::connection::do_post(const std::shared_ptr<article>& message,
         // Start posting
 
         std::ostringstream header;
-        message->article_header.write_to(header);
+        message->get_header().write_to(header);
 
         std::string actual_header = header.str();
 
-        std::array<boost::asio::const_buffer, 4> send_parts = {
-                boost::asio::buffer(actual_header), // Header
-                boost::asio::buffer(protocol::CRLF), // Followed by an empty line
-                boost::asio::buffer(message->article_payload), // Payload
-                boost::asio::buffer(protocol::MESSAGE_TERM) // Followed by terminator
-              };
+        std::vector<boost::asio::const_buffer> send_parts;
+
+        // Three fixed parts + payload pieces
+        send_parts.reserve(3 + message->get_payload_pieces());
+
+        send_parts.push_back(boost::asio::buffer(actual_header));
+        send_parts.push_back(boost::asio::buffer(protocol::CRLF));
+        message->write_payload_asio_buffers(std::back_inserter(send_parts));
+        send_parts.push_back(boost::asio::buffer(protocol::MESSAGE_TERM));
+
+        //std::array<boost::asio::const_buffer, 4> send_parts = {
+        //        boost::asio::buffer(actual_header), // Header
+        //        boost::asio::buffer(protocol::CRLF), // Followed by an empty line
+        //        boost::asio::buffer(message->article_payload), // Payload
+        //        boost::asio::buffer(protocol::MESSAGE_TERM) // Followed by terminator
+        //      };
 
         write(send_parts, yield);
 
@@ -232,7 +242,7 @@ void p2u::nntp::connection::do_post(const std::shared_ptr<article>& message,
             // Post successful
             std::cout << "Connection: " << m_sock.native_handle()
                 << ": Article sent: "
-                << message->article_header.subject << std::endl;
+                << message->get_header().subject << std::endl;
 
             m_strand.post(std::bind(handler, post_result::POST_SUCCESS));
         } else

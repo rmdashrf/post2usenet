@@ -124,7 +124,7 @@ void p2u::nntp::usenet::on_post_finished(connection_handle_iterator connit,
         // point it doesn't matter. So what if the queue size is slightly bigger?
         // We need to make sure that this post gets handled.
         //
-        std::cout << "Fatal connection error occurred. Requeueing " << msg->article_header.subject << " and attempting to reconnect.. " << std::endl;
+        std::cout << "Fatal connection error occurred. Requeueing " << msg->get_header().subject << " and attempting to reconnect.. " << std::endl;
         m_queue.push_back(msg);
         (*connit)->close();
 
