@@ -36,6 +36,7 @@ void p2u::nntp::connection::initSSL()
     m_sslctx = std::unique_ptr<ssl_context>(
             new ssl_context(boost::asio::ssl::context::sslv23));
 
+    // TODO: Actually verify peer cert
     // Because we want the NSA to MITM us
     m_sslctx->set_verify_mode(boost::asio::ssl::verify_none);
 
@@ -338,9 +339,10 @@ void p2u::nntp::connection::close()
     }
     catch (std::exception& e)
     {
-
+        // Ignore any exceptions that may occur :(
     }
 
+    // Consume any leftover data in the readbuf
     size_t data_left = m_readbuf.size();
     if (data_left > 0)
     {

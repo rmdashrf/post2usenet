@@ -45,6 +45,8 @@ namespace p2u
                 using connection_handle_iterator =
                     std::list<connection_handle>::iterator;
 
+                using queued_command = std::function<void(connection_handle_iterator)>;
+
                 // Async-IO service
                 boost::asio::io_service m_iosvc;
                 std::unique_ptr<boost::asio::io_service::work> m_work;
@@ -101,7 +103,7 @@ namespace p2u
                 // TODO: In the future, we probably want a queue of commands
                 // For now, the only valid command that we can do is enqueue
                 // an article to be posted.
-                std::deque<std::shared_ptr<article>> m_queue;
+                std::deque<queued_command> m_queue;
 
 
                 // IO threadpool.
@@ -120,6 +122,9 @@ namespace p2u
                 void on_connected(connection_handle_iterator conn,
                         p2u::nntp::connect_result result);
 
+                void start_async_post(connection_handle_iterator conn,
+                                     const std::shared_ptr<article>& msg);
+
             public:
                 usenet(size_t iothreads);
                 usenet(size_t iothreads, size_t max_queue_size);
@@ -136,7 +141,7 @@ namespace p2u
                  * and the queue is == max queue size, this will block the
                  * caller
                  */
-                void enqueue(const std::shared_ptr<article>& msg);
+                void enqueue_post(const std::shared_ptr<article>& msg);
 
                 void start();
                 void stop();

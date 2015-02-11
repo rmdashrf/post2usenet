@@ -3,130 +3,218 @@
 #include <memory>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/hex.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/property_tree/ptree.hpp>
+#include <boost/program_options.hpp>
+#include <boost/property_tree/ini_parser.hpp>
+
 #include "nntp/message.hpp"
 #include "nntp/connection_info.hpp"
 #include "nntp/usenet.hpp"
 
-
-
-std::string get_run_nonce()
+struct prog_config
 {
-    std::string ret;
-    char buf[4];
+    std::string from;
+    std::vector<std::pair<p2u::nntp::connection_info, int>> servers;
+    std::string subject;
+    size_t article_size;
+    size_t io_threads;
+    bool validate_posts;
+    bool raw;
+};
 
-    ret.reserve(sizeof(buf) * 2);
 
-    std::ifstream rnd("/dev/urandom", std::ifstream::binary);
-    rnd.read(buf, sizeof(buf));
-
-    boost::algorithm::hex(std::begin(buf), std::end(buf), std::back_inserter(ret));
-    return ret;
-}
-
-std::string get_subject(const std::string& run_nonce, int count, int total)
+static void read_nonzero_string(boost::property_tree::ptree& ptree,
+                               const std::string& key,
+                               std::string& dst)
 {
-    std::ostringstream stream;
-    stream <<  "Test Run: [" << run_nonce << "] (" << count << "/" << total << ")";
-    return stream.str();
-}
-
-const char* LINE = "PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP\r\n";
-
-p2u::nntp::message_payload get_body(const std::string& run_nonce, int count, int total, size_t payload_size)
-{
-    p2u::nntp::message_payload ret;
-    std::string content;
-    if (payload_size == 0)
+    auto it = ptree.find(key);
+    if (it == ptree.not_found())
     {
-        content.reserve(160);
-    } else
-    {
-        content.reserve(payload_size + 50);
+        throw std::runtime_error{std::string("Key not found: ") + key};
     }
 
-    std::ostringstream stream{content};
-
-    stream << "Testing posting\r\n"
-           << "Run: " << count << "/" << total << "\r\n"
-           << "Nonce: " << run_nonce << "\r\n";
-
-
-    if (payload_size != 0)
+    dst = it->second.get_value<std::string>();
+    if (dst.size() < 1)
     {
-        while (stream.str().size() < payload_size)
+        throw std::runtime_error{std::string("Must not be empty: ") + key};
+    }
+}
+
+static void read_boolean_value(boost::property_tree::ptree& ptree,
+                               const std::string& key,
+                               bool& dst)
+{
+    // First try to read it as a string
+    std::string str;
+    read_nonzero_string(ptree, key, str);
+
+    dst = (boost::algorithm::iequals(str, "yes") ||
+            boost::algorithm::iequals(str, "true")) ? true : false;
+
+}
+
+template <class T>
+static void read_numeric_value(boost::property_tree::ptree& ptree,
+                               const std::string& key,
+                               T& dst)
+{
+    auto it = ptree.find(key);
+    if (it == ptree.not_found())
+    {
+        throw std::runtime_error{std::string("Key not found: ") + key};
+    }
+
+    dst = it->second.get_value<T>();
+}
+
+
+static void read_server_configuration(boost::property_tree::ptree& tree_node,
+                                      prog_config& cfg)
+{
+    p2u::nntp::connection_info conn;
+    read_nonzero_string(tree_node, "Address", conn.serveraddr);
+    read_numeric_value(tree_node, "Port", conn.port);
+
+    // TODO: Support usenet connections without username and password
+    read_nonzero_string(tree_node, "Username", conn.username);
+    read_nonzero_string(tree_node, "Password", conn.password);
+    read_boolean_value(tree_node, "TLS", conn.tls);
+
+    // Num Connections
+    int num_connections;
+    read_numeric_value(tree_node, "Connections", num_connections);
+
+    cfg.servers.push_back(std::make_pair(std::move(conn), num_connections));
+}
+
+static void read_configuration_file(const boost::filesystem::path& path,
+                                    prog_config& cfg)
+{
+    using boost::property_tree::ptree;
+
+    ptree pt;
+    boost::property_tree::read_ini(path.string(), pt);
+
+    // Global settings
+    auto it = pt.find("global");
+    if (it == pt.not_found())
+    {
+        throw std::runtime_error{"Missing global section in configuration file"};
+    }
+
+    auto& global_section = it->second;
+
+    read_nonzero_string(global_section, "From", cfg.from);
+    read_numeric_value(global_section, "ArticleSize", cfg.article_size);
+
+    // Read server configurations
+    for (auto& section : pt)
+    {
+        if (boost::algorithm::starts_with(section.first, "Server"))
         {
-            stream << LINE;
+            read_server_configuration(section.second, cfg);
         }
     }
-
-    const auto& body = stream.str();
-    ret = p2u::nntp::message_payload(body.begin(), body.end());
-    return ret;
 }
 
-p2u::nntp::connection_info get_conninfo_from_args(int argc, const char* argv[])
+
+namespace po = boost::program_options;
+
+static void read_cmdline_args(const po::variables_map& vm, prog_config& cfg)
 {
-    p2u::nntp::connection_info conn_info;
+    cfg.io_threads = vm["iothreads"].as<int>();
+    cfg.article_size = vm["articlesize"].as<int>();
+    cfg.subject = vm["subject"].as<std::string>();
+    cfg.validate_posts = vm["validate"].as<bool>();
 
-    conn_info.username = argv[3];
-    conn_info.password = argv[4];
-    conn_info.serveraddr = argv[1];
-    conn_info.port = static_cast<std::uint16_t>(std::stoul(argv[2]));
-    conn_info.tls = std::stol(argv[5]) > 0;
-
-    return conn_info;
 }
 
 int main(int argc, const char* argv[])
 {
-    std::ios_base::sync_with_stdio(false);
-    if (argc < 6)
+
+    po::options_description hidden{"So secret!"};
+    hidden.add_options()
+        ("iothreads", po::value<int>()->default_value(1), "Number of IO threads to use. 1 IO thread is usually fine.");
+
+    po::options_description cli{"Command line arguments"};
+
+    cli.add_options()
+        ("help,h", "Show this message")
+        ("articlesize,a", po::value<int>()->default_value(750000), "Size in bytes of each article")
+        ("raw,r", po::value<bool>()->default_value(true), "Raw post mode. Emulates GoPostStuff, newsmangler, etc.")
+        ("validate,v", po::value<bool>()->default_value(false), "Validate articles after post. Issues STAT command to ensure article was properly posted. Repost articles if bad.")
+        ("subject,s", po::value<std::string>()->required(), "Subject of the post. By default, will be set to the folder name if input is a folder, otherwise will be set to the filename")
+        ("config,c", po::value<std::string>(), "Specifies configuration file path")
+        ("file", po::value<std::vector<std::string>>()->required(), "File or directory to post");
+
+    po::positional_options_description positionalopts;
+    positionalopts.add("file", -1);
+
+    po::options_description all_cli;
+    all_cli.add(hidden).add(cli);
+
+    po::variables_map vm;
+    try
     {
-        std::cout << "Usage: " << argv[0] << " address port username password usetls num_connections num_articles payload_size message_queue_max_size io_threads" << std::endl;
+        po::store(po::command_line_parser(argc, argv).options(all_cli).positional(positionalopts).run(), vm);
+
+        if (vm.count("help"))
+        {
+            std::cout << "post2usenet " << std::endl << cli << std::endl;
+            return 0;
+        }
+
+        po::notify(vm);
+    }
+    catch (po::error& e)
+    {
+        std::cout << cli << std::endl;
         return 1;
     }
 
-    std::string run_nonce = get_run_nonce();
-    std::cout << "Run nonce: " << run_nonce << std::endl;
-    boost::asio::io_service io_service;
-
-    p2u::nntp::connection_info conn_info = get_conninfo_from_args(argc, argv);
-
-    size_t payload_size = argc >= 9 ? std::stoul(argv[8]) : 0;
-
-    int num_articles = argc >= 8 ? std::stoi(argv[7]) : 100;
-    size_t num_connections = argc >= 7 ? std::stol(argv[6]) : 15;
-    size_t queue_max_size = argc >= 10 ? std::stoul(argv[9]) : 0;
-    size_t io_threads = argc >= 11 ? std::stoul(argv[10]) : 1;
-
-    std::cout << "Posting " << num_articles << " each with payload size "
-        << payload_size << " among " << num_connections << " connections."
-        << std::endl;
-
-    p2u::nntp::usenet poster{io_threads, queue_max_size}; // Use 1 IO thread
-    poster.add_connections(conn_info, num_connections);
-    poster.start();
-
-    size_t total_payload_bytes = 0;
-
-    auto start = std::chrono::high_resolution_clock::now();
-
-    for (int i = 0; i < num_articles; ++i)
+    if (vm.count("file") < 1)
     {
-        p2u::nntp::header article_header{"newsposter@tester.com", {"alt.binaries.test"}, get_subject(run_nonce, i+1, num_articles), {}};
-        auto article = std::make_shared<p2u::nntp::article>(std::move(article_header));
-        article->add_payload_piece(get_body(run_nonce, i+1, num_articles, payload_size));
-        poster.enqueue(article);
-        total_payload_bytes += article->get_payload_size();
+        std::cout << "Missing files" << std::endl;
+        return 1;
     }
 
-    poster.stop();
-    poster.join();
-    auto end = std::chrono::high_resolution_clock::now();
+    boost::filesystem::path pathToConfig;
+    if (vm.count("config") < 1)
+    {
+        pathToConfig = getenv("HOME");
+        pathToConfig /= ".post2usenet.conf";
+    }
+    else
+    {
+        pathToConfig = vm["config"].as<std::string>();
+    }
 
-    auto elapsed = end - start;
-    auto seconds = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() / 1000.0;
-    auto avg_speed = total_payload_bytes / seconds;
-    std::cout << "Finished sending " << std::dec << total_payload_bytes << " in " << seconds << " seconds for an average speed of " << avg_speed/1024.0 << " KB/s" << std::endl;
+    if (!boost::filesystem::exists(pathToConfig))
+    {
+        std::cout << "Invalid path to configuration file " << pathToConfig << std::endl;
+        return 1;
+    }
+
+    prog_config cfg;
+    try
+    {
+        read_configuration_file(pathToConfig, cfg);
+        read_cmdline_args(vm, cfg);
+        std::cout << cfg.from << std::endl;
+    }
+    catch (std::exception& e)
+    {
+        std::cout << e.what() << std::endl;
+        return 1;
+    }
+
+    const auto& files = vm["file"].as<std::vector<std::string>>();
+    for (const auto& f : files)
+    {
+        std::cout << "File: " << f << std::endl;
+    }
+    std::cout << "Number of io threads: " << vm["iothreads"].as<int>() << std::endl;
+
     return 0;
 }

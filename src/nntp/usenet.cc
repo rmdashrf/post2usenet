@@ -20,7 +20,14 @@ p2u::nntp::usenet::~usenet()
 
 }
 
-void p2u::nntp::usenet::enqueue(const std::shared_ptr<p2u::nntp::article>& msg)
+void p2u::nntp::usenet::start_async_post(connection_handle_iterator conn,
+                                         const std::shared_ptr<article>& msg)
+{
+    auto& connection = *conn;
+    connection->async_post(msg, std::bind(&p2u::nntp::usenet::on_post_finished, this, conn, msg, std::placeholders::_1));
+}
+
+void p2u::nntp::usenet::enqueue_post(const std::shared_ptr<p2u::nntp::article>& msg)
 {
     std::unique_lock<std::mutex> _lock{m_bfm};
 
@@ -34,10 +41,8 @@ void p2u::nntp::usenet::enqueue(const std::shared_ptr<p2u::nntp::article>& msg)
         // Transfer it into the busy list. This does not invalidate the iterator
         m_busy.splice(m_busy.begin(), m_ready, it);
 
-        auto& connection = *it;
-        connection->async_post(msg,
-                std::bind(&p2u::nntp::usenet::on_post_finished, this,
-                    it, msg, std::placeholders::_1));
+
+        start_async_post(it, msg);
         return;
     }
 
@@ -47,7 +52,8 @@ void p2u::nntp::usenet::enqueue(const std::shared_ptr<p2u::nntp::article>& msg)
                 [this](){return m_queue.size() < m_maxsize;});
     }
 
-    m_queue.push_back(msg);
+    // Defer the start_async_post to a connection that will become ready.
+    m_queue.push_back(std::bind(&p2u::nntp::usenet::start_async_post, this, std::placeholders::_1, msg));
 }
 
 void p2u::nntp::usenet::on_conn_becomes_ready(connection_handle_iterator connit)
@@ -56,9 +62,9 @@ void p2u::nntp::usenet::on_conn_becomes_ready(connection_handle_iterator connit)
 
     if (m_queue.size() > 0)
     {
-        // Queue is non empty, we can just queue the next message without having
+        // Queue is non empty, we can just queue the next command without having
         // to splice the iterator back into the ready list
-        auto next_msg = m_queue.front();
+        auto next_command = m_queue.front();
         m_queue.pop_front();
 
         // If we have a bounded queue, potentially producer(s) could be waiting
@@ -67,9 +73,7 @@ void p2u::nntp::usenet::on_conn_becomes_ready(connection_handle_iterator connit)
             m_queuecv.notify_one();
         }
 
-        (*connit)->async_post(next_msg,
-                std::bind(&p2u::nntp::usenet::on_post_finished, this,
-                    connit, next_msg, std::placeholders::_1));
+        next_command(connit);
     }
     else
     {
@@ -125,7 +129,8 @@ void p2u::nntp::usenet::on_post_finished(connection_handle_iterator connit,
         // We need to make sure that this post gets handled.
         //
         std::cout << "Fatal connection error occurred. Requeueing " << msg->get_header().subject << " and attempting to reconnect.. " << std::endl;
-        m_queue.push_back(msg);
+        m_queue.push_back(std::bind(&p2u::nntp::usenet::start_async_post, this, std::placeholders::_1, msg));
+
         (*connit)->close();
 
         (*connit)->async_connect(std::bind(&p2u::nntp::usenet::on_connected,
