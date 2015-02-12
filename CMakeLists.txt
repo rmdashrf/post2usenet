@@ -13,7 +13,9 @@ include_directories(${Boost_INCLUDE_DIRS})
 
 set (CMAKE_CXX_FLAGS "-g -pthread -Wall -std=c++11")
 
-set (PROJECT_SOURCES "./src/main.cc"
+set (PROJECT_SOURCES 
+                     "./src/main.cc"
+                     "./src/program_config.cc"
                      "./src/nntp/connection.cc"
                      "./src/nntp/message.cc"
                      "./src/nntp/usenet.cc"
