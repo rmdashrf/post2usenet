@@ -23,10 +23,9 @@ int main(int argc, const char* argv[])
         return 1;
     }
 
-    p2u::yenc::encoder yenc_encoder{128};
     for (auto it = std::istreambuf_iterator<char>(somefile); it != std::istreambuf_iterator<char>();)
     {
-        it = yenc_encoder(it, std::istreambuf_iterator<char>(), std::ostreambuf_iterator<char>(outfile));
+        it = p2u::yenc::encode_block(it, std::istreambuf_iterator<char>(), std::ostreambuf_iterator<char>(outfile));
     }
 
     return 0;
