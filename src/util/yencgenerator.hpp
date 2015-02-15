@@ -18,7 +18,7 @@ namespace p2u
             private:
                 boost::filesystem::path m_filepath;
                 size_t m_articlesize;
-                p2u::yenc::encoder m_encoder;
+                size_t m_linesize;
 
                 size_t m_numparts;
                 size_t m_filesize;

@@ -11,10 +11,13 @@ find_package(OpenSSL REQUIRED)
 
 include_directories(${Boost_INCLUDE_DIRS})
 
-set (CMAKE_CXX_FLAGS "-g -pthread -Wall -std=c++11")
+set (CMAKE_CXX_FLAGS "-g -pthread -Wall -std=c++11 -Wl,-s")
 
-set (PROJECT_SOURCES 
+set (PROJECT_SOURCES
                      "./src/main.cc"
+                     "./src/fileset.cc"
+                     "./src/util/yencgenerator.cc"
+                     "./src/yenc/yenc.cc"
                      "./src/program_config.cc"
                      "./src/nntp/connection.cc"
                      "./src/nntp/message.cc"

@@ -5,6 +5,7 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/program_options.hpp>
 #include <boost/property_tree/ini_parser.hpp>
+#include <algorithm>
 #include "program_config.hpp"
 
 
@@ -91,6 +92,7 @@ static void read_configuration_file(const boost::filesystem::path& path,
 
     read_nonzero_string(global_section, "From", cfg.from);
     read_numeric_value(global_section, "ArticleSize", cfg.article_size);
+    read_numeric_value(global_section, "ArticleQueueSize", cfg.queue_size);
 
     // Read server configurations
     for (auto& section : pt)
@@ -108,10 +110,27 @@ namespace po = boost::program_options;
 static void read_cmdline_args(const po::variables_map& vm, prog_config& cfg)
 {
     cfg.io_threads = vm["iothreads"].as<int>();
-    cfg.article_size = vm["articlesize"].as<int>();
-    cfg.subject = vm["subject"].as<std::string>();
+
+    if (vm.count("articlesize"))
+    {
+        cfg.article_size = vm["articlesize"].as<int>();
+    }
+
+    if (vm.count("subject"))
+    {
+        cfg.subject = vm["subject"].as<std::string>();
+    }
+
     cfg.validate_posts = vm["validate"].as<bool>();
     cfg.raw = vm["raw"].as<bool>();
+
+    auto& files = vm["file"].as<std::vector<std::string>>();
+
+    std::transform(files.begin(), files.end(), std::back_inserter(cfg.files),
+            [](const std::string& p)
+            {
+                return boost::filesystem::path(p);
+            });
 }
 
 bool load_program_config(int argc, const char* argv[], prog_config& cfg)
@@ -124,10 +143,10 @@ bool load_program_config(int argc, const char* argv[], prog_config& cfg)
 
     cli.add_options()
         ("help,h", "Show this message")
-        ("articlesize,a", po::value<int>()->default_value(750000), "Size in bytes of each article")
+        ("articlesize,a", po::value<int>(), "Size in bytes of each article")
         ("raw,r", po::value<bool>()->default_value(true), "Raw post mode. Emulates GoPostStuff, newsmangler, etc.")
         ("validate,v", po::value<bool>()->default_value(false), "Validate articles after post. Issues STAT command to ensure article was properly posted. Repost articles if bad.")
-        ("subject,s", po::value<std::string>()->required(), "Subject of the post. By default, will be set to the folder name if input is a folder, otherwise will be set to the filename")
+        ("subject,s", po::value<std::string>(), "Subject of the post. By default, will be set to the folder name if input is a folder, otherwise will be set to the filename")
         ("config,c", po::value<std::string>(), "Specifies configuration file path")
         ("file", po::value<std::vector<std::string>>()->required(), "File or directory to post");
 
@@ -182,8 +201,26 @@ bool load_program_config(int argc, const char* argv[], prog_config& cfg)
     try
     {
         read_configuration_file(pathToConfig, cfg);
+
+        if (cfg.servers.size() < 1)
+        {
+            std::cout << "Need at least one server block! (Where else am I supposed to post?)" << std::endl;
+            return false;
+        }
+
         read_cmdline_args(vm, cfg);
-        return true;
+
+        bool good = true;
+        for (const auto& path : cfg.files)
+        {
+            if (!boost::filesystem::exists(path))
+            {
+                std::cout << "ERROR: Path " << path << " does not exist!" << std::endl;
+                good = false;
+            }
+        }
+
+        return good;
     }
     catch (std::exception& e)
     {
