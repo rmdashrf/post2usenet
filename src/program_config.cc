@@ -131,6 +131,11 @@ static void read_cmdline_args(const po::variables_map& vm, prog_config& cfg)
             {
                 return boost::filesystem::path(p);
             });
+
+    if (vm.count("group"))
+    {
+        cfg.groups = vm["group"].as<std::vector<std::string>>();
+    }
 }
 
 bool load_program_config(int argc, const char* argv[], prog_config& cfg)
@@ -148,6 +153,7 @@ bool load_program_config(int argc, const char* argv[], prog_config& cfg)
         ("validate,v", po::value<bool>()->default_value(false), "Validate articles after post. Issues STAT command to ensure article was properly posted. Repost articles if bad.")
         ("subject,s", po::value<std::string>(), "Subject of the post. By default, will be set to the folder name if input is a folder, otherwise will be set to the filename")
         ("config,c", po::value<std::string>(), "Specifies configuration file path")
+        ("group,g", po::value<std::vector<std::string>>(), "Groups to post to")
         ("file", po::value<std::vector<std::string>>()->required(), "File or directory to post");
 
     po::positional_options_description positionalopts;
@@ -209,6 +215,12 @@ bool load_program_config(int argc, const char* argv[], prog_config& cfg)
         }
 
         read_cmdline_args(vm, cfg);
+
+        if (cfg.groups.size() < 1)
+        {
+            std::cout << "Need at least one group to post to!" << std::endl;
+            return false;
+        }
 
         bool good = true;
         for (const auto& path : cfg.files)

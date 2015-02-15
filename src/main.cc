@@ -1,7 +1,36 @@
 #include <iostream>
+#include <iomanip>
+#include <random>
+#include <chrono>
 #include "program_config.hpp"
 #include "fileset.hpp"
-#include <iomanip>
+#include "nntp/message.hpp"
+#include "nntp/usenet.hpp"
+
+static std::string get_message_id(const std::string& base, size_t fileIndex,
+                                  size_t pieceIndex)
+{
+    std::ostringstream stream;
+    stream << "<" << base << "." << fileIndex << "." << pieceIndex << "@post2usenet>";
+    return stream.str();
+}
+
+static std::string get_run_nonce(size_t length)
+{
+    static const char choices[] = "abcdefghijklmnopqrstuvwxyz1234567890";
+
+    std::mt19937 rng{static_cast<std::mt19937::result_type>(
+            std::chrono::system_clock::now().time_since_epoch().count())};
+
+    std::ostringstream stream;
+
+    for (size_t i = 0; i < length; ++i)
+    {
+        stream << choices[rng() % sizeof(choices)];
+    }
+
+    return stream.str();
+}
 
 int main(int argc, const char* argv[])
 {
@@ -51,7 +80,17 @@ int main(int argc, const char* argv[])
         }
     }
 
+    p2u::nntp::usenet usenet{cfg.io_threads, cfg.queue_size};
+    for (const auto& p : cfg.servers)
+    {
+        usenet.add_connections(p.first, p.second);
+    }
+
+    usenet.start();
+    std::string run_nonce = get_run_nonce(16);
+
     size_t num_total_files = postitems.get_num_files();
+
     for (size_t fileIndex = 0; fileIndex < num_total_files; ++fileIndex)
     {
         size_t num_pieces = postitems.get_num_pieces(fileIndex);
@@ -61,19 +100,30 @@ int main(int argc, const char* argv[])
             // Article subject name
             std::ostringstream article_subject;
             article_subject << cfg.subject << " [" << fileIndex+1 << "/" << num_total_files << "] - \"" << cur_file_name << "\" yEnc (" << pieceIndex+1 << "/" << num_pieces << ")";
-            std::cout << article_subject.str() << std::endl;
 
-            std::ofstream out;
-
-            std::ostringstream stream;
-            stream << cur_file_name << "_yenc." << std::setw(3) << std::setfill('0') << pieceIndex;
-            auto outfile = stream.str();
-
-            out.open(outfile.c_str(), std::ofstream::binary);
-
+            // Body
             auto chunk = postitems.get_chunk(fileIndex, pieceIndex);
-            out.write(&chunk[0], chunk.size());
+
+
+            // Header
+            p2u::nntp::header header;
+            header.from = cfg.from;
+            header.subject = article_subject.str();
+            std::copy(cfg.groups.begin(), cfg.groups.end(), std::back_inserter(header.newsgroups));
+            header.additional.push_back({"X-Newsposter", "post2usenet"});
+            header.additional.push_back({"Message-ID", get_message_id(run_nonce, fileIndex, pieceIndex)});
+
+            header.write_to(std::cout);
+
+            auto article = std::make_shared<p2u::nntp::article>(header);
+            article->add_payload_piece(std::move(chunk));
+            usenet.enqueue_post(article);
         }
     }
+
+    usenet.stop();
+    usenet.join();
+    std::cout << "Finished posting!" << std::endl;
+    return 0;
 }
 
