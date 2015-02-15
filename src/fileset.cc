@@ -14,6 +14,7 @@ bool fileset::add_file(const boost::filesystem::path& p)
 
     m_files.push_back(p);
     m_filehandles.emplace_back(std::make_unique<p2u::util::yencgenerator>(p, m_articlesize, 128));
+    return true;
 }
 
 std::string fileset::get_file_name(size_t index) const
@@ -34,4 +35,15 @@ size_t fileset::get_num_files() const
 fileset::chunk fileset::get_chunk(size_t fileindex, size_t pieceindex)
 {
     return m_filehandles.at(fileindex)->get_part(pieceindex);
+}
+
+size_t fileset::get_total_pieces() const
+{
+    size_t ret = 0;
+    for (const auto& file : m_filehandles)
+    {
+        ret += file->num_parts();
+    }
+
+    return ret;
 }

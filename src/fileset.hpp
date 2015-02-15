@@ -24,6 +24,7 @@ class fileset
         size_t get_num_pieces(size_t index) const;
         size_t get_num_files() const;
         std::string get_file_name(size_t index) const;
+        size_t get_total_pieces() const;
 
         chunk get_chunk(size_t fileindex, size_t pieceindex);
 
