@@ -26,7 +26,7 @@ static std::string get_run_nonce(size_t length)
 
     for (size_t i = 0; i < length; ++i)
     {
-        stream << choices[rng() % sizeof(choices)];
+        stream << choices[rng() % (sizeof(choices) - 1)];
     }
 
     return stream.str();
