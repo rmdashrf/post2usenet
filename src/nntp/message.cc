@@ -38,7 +38,7 @@ void p2u::nntp::article::add_payload_piece(payload_piece_type&& other)
 
 size_t p2u::nntp::article::get_payload_size() const
 {
-    size_t ret;
+    size_t ret = 0;
     std::for_each(m_payload.begin(), m_payload.end(),
             [&ret](const payload_piece_type& piece)
             {
