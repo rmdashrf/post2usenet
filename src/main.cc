@@ -57,6 +57,13 @@ int main(int argc, const char* argv[])
     }
 
     fileset postitems{cfg.article_size};
+    uint64_t total_bytes = 0;
+
+    auto add_postitem = [&postitems, &total_bytes](const boost::filesystem::path& path)
+    {
+        postitems.add_file(path);
+        total_bytes += boost::filesystem::file_size(path);
+    };
 
     for (auto& path : cfg.files)
     {
@@ -66,13 +73,13 @@ int main(int argc, const char* argv[])
             {
                 if (fs::is_regular_file(it->path()))
                 {
-                    postitems.add_file(it->path());
+                    add_postitem(it->path());
                 }
             }
         }
         else if (fs::is_regular_file(path))
         {
-            postitems.add_file(path);
+            add_postitem(path);
         }
         else
         {
@@ -90,6 +97,23 @@ int main(int argc, const char* argv[])
     std::string run_nonce = get_run_nonce(16);
 
     size_t num_total_files = postitems.get_num_files();
+    size_t total_parts = postitems.get_total_pieces();
+    size_t num_posted = 0;
+    uint64_t bytes_posted = 0;
+
+    auto post_start = std::chrono::system_clock::now();
+
+    usenet.set_post_finished_callback([&](const std::shared_ptr<p2u::nntp::article>& article)
+            {
+                ++num_posted;
+                bytes_posted += article->get_payload_size();
+
+                auto seconds_elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - post_start).count();
+                uint64_t speed_kb = (bytes_posted / seconds_elapsed) / 1024;
+
+                std::cout << "POST FINISH ## " << article->get_header().subject << " ## Pieces Remaining: " << (total_parts - num_posted) << " ## Average Speed: " << speed_kb << " KB/s" << std::endl;
+
+            });
 
     for (size_t fileIndex = 0; fileIndex < num_total_files; ++fileIndex)
     {
@@ -113,10 +137,9 @@ int main(int argc, const char* argv[])
             header.additional.push_back({"X-Newsposter", "post2usenet"});
             header.additional.push_back({"Message-ID", get_message_id(run_nonce, fileIndex, pieceIndex)});
 
-            header.write_to(std::cout);
-
             auto article = std::make_shared<p2u::nntp::article>(header);
             article->add_payload_piece(std::move(chunk));
+            std::cout << "Enqueuing " << cur_file_name << " piece " << pieceIndex << std::endl;
             usenet.enqueue_post(article);
         }
     }

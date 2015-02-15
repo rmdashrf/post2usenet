@@ -47,6 +47,9 @@ namespace p2u
 
                 using queued_command = std::function<void(connection_handle_iterator)>;
 
+                using on_finish_post = std::function<void(const std::shared_ptr<p2u::nntp::article>&)>;
+                using on_finish_validate = std::function<void(const std::string& str)>;
+
                 // Async-IO service
                 boost::asio::io_service m_iosvc;
                 std::unique_ptr<boost::asio::io_service::work> m_work;
@@ -113,6 +116,10 @@ namespace p2u
 
                 std::vector<conn_info_element> m_conninfo;
 
+                on_finish_post m_slot_finish_post;
+                on_finish_validate m_slot_finish_validate;
+
+
                 void on_conn_becomes_ready(connection_handle_iterator conn);
 
                 void on_post_finished(connection_handle_iterator conn,
@@ -142,6 +149,7 @@ namespace p2u
                  * caller
                  */
                 void enqueue_post(const std::shared_ptr<article>& msg);
+                void set_post_finished_callback(on_finish_post func);
 
                 void start();
                 void stop();

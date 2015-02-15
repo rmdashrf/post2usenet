@@ -31,6 +31,7 @@ void p2u::nntp::usenet::enqueue_post(const std::shared_ptr<p2u::nntp::article>& 
 {
     std::unique_lock<std::mutex> _lock{m_bfm};
 
+    std::cout << "Enqueue post. Ready= " << m_ready.size() << std::endl;
     if (m_ready.size() > 0)
     {
         // Directly enqueue the task.
@@ -39,15 +40,16 @@ void p2u::nntp::usenet::enqueue_post(const std::shared_ptr<p2u::nntp::article>& 
         auto it = m_ready.begin();
 
         // Transfer it into the busy list. This does not invalidate the iterator
+        std::cout << "Directly enqueued" << std::endl;
         m_busy.splice(m_busy.begin(), m_ready, it);
-
 
         start_async_post(it, msg);
         return;
     }
 
-    if (m_maxsize != 0 && m_queue.size() == m_maxsize)
+    if (m_maxsize != 0 && m_queue.size() >= m_maxsize)
     {
+        std::cout << "Waiting for queue to free up " << std::endl;
         m_queuecv.wait(_lock,
                 [this](){return m_queue.size() < m_maxsize;});
     }
@@ -93,6 +95,7 @@ void p2u::nntp::usenet::on_connected(connection_handle_iterator connit,
     }
     else if (result == p2u::nntp::connect_result::INVALID_CREDENTIALS)
     {
+        // TODO: Can't use exceptions in real code yo
         throw std::runtime_error{"Invalid credentials"};
     }
     else
@@ -139,6 +142,10 @@ void p2u::nntp::usenet::on_post_finished(connection_handle_iterator connit,
     else
     {
         on_conn_becomes_ready(connit);
+        if (m_slot_finish_post)
+        {
+            m_slot_finish_post(msg);
+        }
     }
 }
 
@@ -162,6 +169,11 @@ void p2u::nntp::usenet::start()
     {
         m_iothreads.emplace_back([this](){ m_iosvc.run(); });
     }
+}
+
+void p2u::nntp::usenet::set_post_finished_callback(on_finish_post func)
+{
+    m_slot_finish_post = func;
 }
 
 void p2u::nntp::usenet::add_connections(const p2u::nntp::connection_info& conninfo,

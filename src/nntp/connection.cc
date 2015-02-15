@@ -44,15 +44,24 @@ void p2u::nntp::connection::initSSL()
             new ssl_stream(m_sock, *m_sslctx));
 }
 
+void p2u::nntp::connection::timeout_next_async_operation(int seconds)
+{
+    // Start the timer.
+    m_timer.expires_from_now(boost::posix_time::seconds(seconds));
+    m_timer.async_wait([this](const boost::system::error_code& ec)
+            {
+                if (!ec)
+                {
+                    m_sock.cancel();
+                }
+            });
+}
 std::string p2u::nntp::connection::read_line(boost::asio::yield_context& yield)
 {
     std::string ret;
 
     // Start the timer.
-    m_timer.expires_from_now(boost::posix_time::seconds(5));
-    m_timer.async_wait(std::bind(
-                &p2u::nntp::connection::cancel_sock_operation, this,
-                std::placeholders::_1));
+    timeout_next_async_operation(5);
 
     if (m_sslstream)
     {
@@ -135,11 +144,13 @@ void p2u::nntp::connection::do_connect(connect_handler completion_handler,
 
             tcp::endpoint endpoint(resolvit->endpoint().address(),
                                    m_conninfo.port);
-            std::cout << "Connecting to " << endpoint << std::endl;
+            //std::cout << "Connecting to " << endpoint << std::endl;
 
             try {
+                timeout_next_async_operation(5);
                 m_sock.async_connect(endpoint, yield);
                 m_state = state::CONNECTING_AUTHENTICATING;
+                m_timer.cancel();
                 break;
             } catch (boost::system::system_error& e)
             {
@@ -155,16 +166,18 @@ void p2u::nntp::connection::do_connect(connect_handler completion_handler,
 
         if (m_sslstream)
         {
+            timeout_next_async_operation(5);
             m_sslstream->async_handshake(m_sslstream->client, yield);
+            m_timer.cancel();
         }
 
         if (do_authenticate(yield))
         {
-            std::cout << "Authentication successful " << std::endl;
+            //std::cout << "Authentication successful " << std::endl;
             m_state = state::CONNECTED_AND_AUTHENTICATED;
             m_strand.post(std::bind(completion_handler, connect_result::CONNECT_SUCCESS));
         } else {
-            std::cout << "Authentication failed " << std::endl;
+            //std::cout << "Authentication failed " << std::endl;
             m_state = state::DISCONNECTED;
             m_strand.post(std::bind(completion_handler, connect_result::INVALID_CREDENTIALS));
         }
@@ -241,9 +254,9 @@ void p2u::nntp::connection::do_post(const std::shared_ptr<article>& message,
         if (line[0] == '2')
         {
             // Post successful
-            std::cout << "Connection: " << m_sock.native_handle()
-                << ": Article sent: "
-                << message->get_header().subject << std::endl;
+            //std::cout << "Connection: " << m_sock.native_handle()
+            //    << ": Article sent: "
+            //    << message->get_header().subject << std::endl;
 
             m_strand.post(std::bind(handler, post_result::POST_SUCCESS));
         } else

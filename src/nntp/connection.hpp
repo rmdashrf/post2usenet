@@ -125,21 +125,26 @@ namespace p2u
 
                 std::string read_line(boost::asio::yield_context& yield);
 
+                void timeout_next_async_operation(int seconds);
                 void cancel_sock_operation(const boost::system::error_code& ec);
 
                 template <class ConstBufferSequence>
                 size_t write(const ConstBufferSequence& buffers,
                              boost::asio::yield_context yield)
                 {
+                    timeout_next_async_operation(5);
+                    size_t ret;
                     if (m_sslstream)
                     {
-                        return boost::asio::async_write(*m_sslstream, buffers,
+                        ret = boost::asio::async_write(*m_sslstream, buffers,
                                                         yield);
                     }
                     else
                     {
-                        return boost::asio::async_write(m_sock, buffers, yield);
+                        ret = boost::asio::async_write(m_sock, buffers, yield);
                     }
+                    m_timer.cancel();
+                    return ret;
                 }
 
                 void send_authinfo_username(boost::asio::yield_context& yield);
