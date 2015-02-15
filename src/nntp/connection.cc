@@ -1,3 +1,15 @@
+/**
+ * Welcome to Callback Hell.
+ *
+ * I tried using Boost Coroutine to make this look prettier, but I kept on
+ * getting weird uninitailized memory issues. It was also notoriously difficult
+ * to debug since GDB and Valgrind are both coroutine unaware.
+ *
+ * The state of coroutines in C++, frankly, is not usable. We're just going
+ * to have to endure an endless series of callbacks.
+ *
+ */
+
 #include <iostream>
 #include <boost/utility/string_ref.hpp>
 #include <boost/algorithm/string.hpp>
@@ -17,8 +29,8 @@ const std::string p2u::nntp::protocol::STAT{"STAT "};
 
 p2u::nntp::connection::connection(boost::asio::io_service& io_service,
                                   const connection_info& conn)
-    : m_sock {io_service}, m_state {state::DISCONNECTED}, m_conninfo(conn),
-      m_strand{io_service}, m_timer{io_service}
+    : m_sock {io_service}, m_resolver{io_service}, m_state {state::DISCONNECTED}, m_conninfo(conn),
+      m_timer{io_service}
 {
     if (conn.tls)
     {
@@ -56,29 +68,8 @@ void p2u::nntp::connection::timeout_next_async_operation(int seconds)
                 }
             });
 }
-std::string p2u::nntp::connection::read_line(boost::asio::yield_context& yield)
-{
-    std::string ret;
 
-    // Start the timer.
-    timeout_next_async_operation(5);
-
-    if (m_sslstream)
-    {
-        ret = p2u::asio::async_read_line(*m_sslstream, m_readbuf, yield);
-    } else
-    {
-        ret = p2u::asio::async_read_line(m_sock, m_readbuf, yield);
-    }
-
-    // If we reach here, this means that the operation was successful. Cancel
-    // the timer.
-    m_timer.cancel();
-
-    return ret;
-}
-
-void p2u::nntp::connection::send_authinfo_username(boost::asio::yield_context& yield)
+void p2u::nntp::connection::send_authinfo_username()
 {
     std::array<boost::asio::const_buffer, 3> parts {
         boost::asio::buffer(protocol::AUTHINFOUSER),
@@ -86,10 +77,52 @@ void p2u::nntp::connection::send_authinfo_username(boost::asio::yield_context& y
         boost::asio::buffer(protocol::CRLF)
     };
 
-    write(parts, yield);
+    write(parts, [this](const boost::system::error_code& ec, size_t bytes_transferred)
+            {
+                if (!ec)
+                {
+                    read_line([this](const boost::system::error_code& ec, const std::string& line)
+                        {
+                            if (!ec)
+                            {
+
+                                if (boost::starts_with(line, "381"))
+                                {
+                                    send_authinfo_password();
+                                }
+                                else
+                                {
+                                    check_authinfo_result(line);
+                                }
+                            }
+                            else
+                            {
+                                connect_handler_callback(connect_result::FATAL_CONNECT_ERROR);
+                            }
+                        });
+                }
+                else
+                {
+                    get_io_service().post(std::bind(m_connecthandler,
+                            connect_result::FATAL_CONNECT_ERROR));
+                }
+            });
 }
 
-void p2u::nntp::connection::send_authinfo_password(boost::asio::yield_context& yield)
+void p2u::nntp::connection::check_authinfo_result(const std::string& line)
+{
+    if (line[0] == '2')
+    {
+        m_state = state::CONNECTED_AND_AUTHENTICATED;
+        connect_handler_callback(connect_result::CONNECT_SUCCESS);
+    }
+    else
+    {
+        connect_handler_callback(connect_result::INVALID_CREDENTIALS);
+    }
+}
+
+void p2u::nntp::connection::send_authinfo_password()
 {
     std::array<boost::asio::const_buffer, 3> parts {
         boost::asio::buffer(protocol::AUTHINFOPASS),
@@ -97,199 +130,243 @@ void p2u::nntp::connection::send_authinfo_password(boost::asio::yield_context& y
         boost::asio::buffer(protocol::CRLF)
     };
 
-    write(parts, yield);
+    write(parts, [this](const boost::system::error_code& ec, size_t bytes_transferred)
+            {
+                if (!ec)
+                {
+                    read_line([this](const boost::system::error_code& ec, const std::string& line)
+                        {
+                            if (!ec)
+                            {
+                                check_authinfo_result(line);
+                            }
+                            else
+                            {
+                                connect_handler_callback(connect_result::FATAL_CONNECT_ERROR);
+                            }
+                        });
+                }
+                else
+                {
+                    connect_handler_callback(connect_result::FATAL_CONNECT_ERROR);
+                }
+            });
 }
 
-bool p2u::nntp::connection::do_authenticate(boost::asio::yield_context& yield)
+void p2u::nntp::connection::do_authenticate()
 {
-    std::string line = read_line(yield);
-    if (line[0] != '2')
-    {
-        return false;
-    }
-
-    send_authinfo_username(yield);
-    line = read_line(yield);
-
-    if (boost::starts_with(line, "381"))
-    {
-        send_authinfo_password(yield);
-        line = read_line(yield);
-    }
-
-    if (line[0] == '2')
-    {
-        return true;
-    } else
-    {
-        return false;
-    }
+    read_line([this](const boost::system::error_code& ec, const std::string& line)
+            {
+                if (!ec)
+                {
+                    if (line[0] != '2')
+                    {
+                        connect_handler_callback(connect_result::FATAL_CONNECT_ERROR);
+                    }
+                    else
+                    {
+                        send_authinfo_username();
+                    }
+                }
+                else
+                {
+                    connect_handler_callback(connect_result::FATAL_CONNECT_ERROR);
+                }
+            });
 }
 
-void p2u::nntp::connection::do_connect(connect_handler completion_handler,
-                                       boost::asio::yield_context yield)
+void p2u::nntp::connection::connect_handler_callback(connect_result result)
+{
+    get_io_service().post(std::bind(m_connecthandler, result));
+}
+
+void p2u::nntp::connection::do_connect()
 {
     boost::system::error_code ec;
-    auto& io_service = m_sock.get_io_service();
-    try
-    {
-        m_state = state::CONNECTING;
 
-        tcp::resolver resolver{io_service};
-        tcp::resolver::query query(m_conninfo.serveraddr, "");
+    m_state = state::CONNECTING;
 
-        for (auto resolvit = resolver.async_resolve(query, yield);
-                resolvit != tcp::resolver::iterator(); ++resolvit)
-        {
+    tcp::resolver::query query(m_conninfo.serveraddr, "");
 
-            tcp::endpoint endpoint(resolvit->endpoint().address(),
-                                   m_conninfo.port);
-            //std::cout << "Connecting to " << endpoint << std::endl;
 
-            try {
-                timeout_next_async_operation(5);
-                m_sock.async_connect(endpoint, yield);
-                m_state = state::CONNECTING_AUTHENTICATING;
-                m_timer.cancel();
-                break;
-            } catch (boost::system::system_error& e)
+    m_resolver.async_resolve(query,
+            [this](const boost::system::error_code& ec, boost::asio::ip::tcp::resolver::iterator resolvit)
             {
-                std::cout << "Could not connect to " << endpoint << std::endl;
-                std::cout << "Error: " << e.what() << std::endl;
-            }
-        }
+                if (!ec)
+                {
+                    tcp::endpoint endpoint(resolvit->endpoint().address(), m_conninfo.port);
+                    timeout_next_async_operation(5);
+                    m_sock.async_connect(endpoint, [this](const boost::system::error_code& ec)
+                        {
+                            if (!ec)
+                            {
+                                // Connect successful, try authenticating
+                                m_timer.cancel();
 
-        if (m_state != state::CONNECTING_AUTHENTICATING)
-        {
-            throw std::runtime_error("Could not connect to any endpoints");
-        }
-
-        if (m_sslstream)
-        {
-            timeout_next_async_operation(5);
-            m_sslstream->async_handshake(m_sslstream->client, yield);
-            m_timer.cancel();
-        }
-
-        if (do_authenticate(yield))
-        {
-            //std::cout << "Authentication successful " << std::endl;
-            m_state = state::CONNECTED_AND_AUTHENTICATED;
-            m_strand.post(std::bind(completion_handler, connect_result::CONNECT_SUCCESS));
-        } else {
-            //std::cout << "Authentication failed " << std::endl;
-            m_state = state::DISCONNECTED;
-            m_strand.post(std::bind(completion_handler, connect_result::INVALID_CREDENTIALS));
-        }
-
-
-    } catch (std::exception& e)
-    {
-        std::cout << "Caught exception: " << e.what() << std::endl;
-        m_strand.post(std::bind(completion_handler,
-                    connect_result::FATAL_CONNECT_ERROR));
-        m_state = state::DISCONNECTED;
-    }
+                                if (m_sslstream)
+                                {
+                                    // Need to handshake first
+                                    timeout_next_async_operation(5);
+                                    m_sslstream->async_handshake(m_sslstream->client,
+                                        [this](const boost::system::error_code& ec)
+                                        {
+                                            if (!ec)
+                                            {
+                                                m_timer.cancel();
+                                                do_authenticate();
+                                            }
+                                            else
+                                            {
+                                                connect_handler_callback(connect_result::FATAL_CONNECT_ERROR);
+                                            }
+                                        });
+                                }
+                                else
+                                {
+                                    do_authenticate();
+                                }
+                            }
+                            else
+                            {
+                                connect_handler_callback(connect_result::FATAL_CONNECT_ERROR);
+                            }
+                        });
+                }
+                else
+                {
+                    connect_handler_callback(connect_result::FATAL_CONNECT_ERROR);
+                }
+            });
 }
 
-void p2u::nntp::connection::async_connect(connect_handler handler)
+void p2u::nntp::connection::async_connect()
 {
     if (m_state == state::DISCONNECTED)
     {
-        boost::asio::spawn(m_strand,
-                std::bind(&connection::do_connect, this,
-                    handler, std::placeholders::_1));
+        get_io_service().post([this](){do_connect();});
     }
 }
 
 
-void p2u::nntp::connection::do_post(const std::shared_ptr<article>& message,
-                                    post_handler handler,
-                                    boost::asio::yield_context yield)
+void p2u::nntp::connection::post_handler_callback(post_result result)
 {
-    try
-    {
-        busy_state_lock _lck{m_state};
+    m_state = state::CONNECTED_AND_AUTHENTICATED;
+    get_io_service().post([this, result, article=this->m_article]()
+            {
+                if (m_posthandler)
+                {
+                    m_posthandler(article, result);
+                }
+            });
 
-
-        write(boost::asio::buffer(protocol::POST), yield);
-
-        std::string line = read_line(yield);
-
-        if (line[0] == '4')
-        {
-            m_strand.post(std::bind(handler, post_result::POSTING_NOT_PERMITTED));
-            return;
-        }
-
-        // Start posting
-
-        std::ostringstream header;
-        message->get_header().write_to(header);
-
-        std::string actual_header = header.str();
-
-        std::vector<boost::asio::const_buffer> send_parts;
-
-        // Three fixed parts + payload pieces
-        send_parts.reserve(3 + message->get_payload_pieces());
-
-        send_parts.push_back(boost::asio::buffer(actual_header));
-        send_parts.push_back(boost::asio::buffer(protocol::CRLF));
-        message->write_payload_asio_buffers(std::back_inserter(send_parts));
-        send_parts.push_back(boost::asio::buffer(protocol::MESSAGE_TERM));
-
-        //std::array<boost::asio::const_buffer, 4> send_parts = {
-        //        boost::asio::buffer(actual_header), // Header
-        //        boost::asio::buffer(protocol::CRLF), // Followed by an empty line
-        //        boost::asio::buffer(message->article_payload), // Payload
-        //        boost::asio::buffer(protocol::MESSAGE_TERM) // Followed by terminator
-        //      };
-
-        write(send_parts, yield);
-
-
-        line = read_line(yield);
-
-        if (line[0] == '2')
-        {
-            // Post successful
-            //std::cout << "Connection: " << m_sock.native_handle()
-            //    << ": Article sent: "
-            //    << message->get_header().subject << std::endl;
-
-            m_strand.post(std::bind(handler, post_result::POST_SUCCESS));
-        } else
-        {
-            m_strand.post(std::bind(handler, post_result::POST_FAILURE));
-        }
-
-    }
-    catch (std::exception &e)
-    {
-        std::cout << "Caught exception: " << e.what() << std::endl;
-        close();
-        m_strand.post(std::bind(handler,
-                    post_result::POST_FAILURE_CONNECTION_ERROR));
-    }
+    m_article.reset();
 }
 
-bool p2u::nntp::connection::async_post(const std::shared_ptr<article>& message,
-                                       post_handler handler)
+void p2u::nntp::connection::do_post()
+{
+    m_state = state::BUSY;
+
+    write(boost::asio::buffer(protocol::POST),
+            [this](const boost::system::error_code& ec, size_t)
+            {
+                if (!ec)
+                {
+                    read_line([this](const boost::system::error_code& ec, const std::string& line)
+                    {
+                        if (!ec)
+                        {
+                            if (line[0] == '4')
+                            {
+                                post_handler_callback(post_result::POSTING_NOT_PERMITTED);
+                            }
+                            else
+                            {
+                                send_article();
+                            }
+                        }
+                        else
+                        {
+                            post_handler_callback(post_result::POST_FAILURE_CONNECTION_ERROR);
+                        }
+                    });
+                }
+                else
+                {
+                    post_handler_callback(post_result::POST_FAILURE_CONNECTION_ERROR);
+                }
+            });
+
+}
+
+void p2u::nntp::connection::send_article()
+{
+    std::ostringstream header;
+    m_article->get_header().write_to(header);
+    m_postheader.clear();
+    m_send_parts.clear();
+    m_postheader = header.str();
+
+    m_send_parts.push_back(boost::asio::buffer(m_postheader.c_str(), m_postheader.length()));
+    m_send_parts.push_back(boost::asio::buffer(protocol::CRLF));
+    m_article->write_payload_asio_buffers(std::back_inserter(m_send_parts));
+    m_send_parts.push_back(boost::asio::buffer(protocol::MESSAGE_TERM));
+
+    write(m_send_parts, [this](const boost::system::error_code& ec, size_t)
+            {
+                if (!ec)
+                {
+                    read_line([this](const boost::system::error_code& ec, const std::string& line)
+                        {
+                            if (!ec)
+                            {
+                                if (line[0] == '2')
+                                {
+                                    post_handler_callback(post_result::POST_SUCCESS);
+                                }
+                                else
+                                {
+                                    post_handler_callback(post_result::POST_FAILURE);
+                                }
+                            }
+                            else
+                            {
+                                post_handler_callback(post_result::POST_FAILURE_CONNECTION_ERROR);
+                            }
+                        });
+                }
+                else
+                {
+                    post_handler_callback(post_result::POST_FAILURE_CONNECTION_ERROR);
+                }
+            });
+}
+
+void p2u::nntp::connection::set_post_handler(const post_handler& handler)
+{
+    m_posthandler = handler;
+}
+
+void p2u::nntp::connection::set_connect_handler(const connect_handler& handler)
+{
+    m_connecthandler = handler;
+}
+
+bool p2u::nntp::connection::async_post(const std::shared_ptr<article>& message)
 {
     if (m_state != state::CONNECTED_AND_AUTHENTICATED)
     {
+        std::cout << "async_post called without being connected and authenticated!" << std::endl;
         return false;
     }
 
-    boost::asio::spawn(m_strand,
-            std::bind(&connection::do_post,
-                            this, message, handler, std::placeholders::_1));
+    m_article = message;
+
+    get_io_service().post([this](){ do_post(); });
     return true;
 }
 
-void p2u::nntp::connection::send_stat_cmd(const std::string& mid,
-                                          boost::asio::yield_context& yield)
+/*
+void p2u::nntp::connection::send_stat_cmd(const std::string& mid)
 {
     std::array<boost::asio::const_buffer, 3> parts = {
         boost::asio::buffer(protocol::STAT),
@@ -338,6 +415,7 @@ bool p2u::nntp::connection::async_stat(const std::string& mid,
                 handler, std::placeholders::_1));
     return true;
 }
+*/
 
 
 void p2u::nntp::connection::close()

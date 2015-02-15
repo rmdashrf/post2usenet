@@ -24,14 +24,13 @@ void p2u::nntp::usenet::start_async_post(connection_handle_iterator conn,
                                          const std::shared_ptr<article>& msg)
 {
     auto& connection = *conn;
-    connection->async_post(msg, std::bind(&p2u::nntp::usenet::on_post_finished, this, conn, msg, std::placeholders::_1));
+    connection->async_post(msg);
 }
 
 void p2u::nntp::usenet::enqueue_post(const std::shared_ptr<p2u::nntp::article>& msg)
 {
     std::unique_lock<std::mutex> _lock{m_bfm};
 
-    std::cout << "Enqueue post. Ready= " << m_ready.size() << std::endl;
     if (m_ready.size() > 0)
     {
         // Directly enqueue the task.
@@ -40,7 +39,6 @@ void p2u::nntp::usenet::enqueue_post(const std::shared_ptr<p2u::nntp::article>& 
         auto it = m_ready.begin();
 
         // Transfer it into the busy list. This does not invalidate the iterator
-        std::cout << "Directly enqueued" << std::endl;
         m_busy.splice(m_busy.begin(), m_ready, it);
 
         start_async_post(it, msg);
@@ -118,9 +116,7 @@ void p2u::nntp::usenet::on_post_finished(connection_handle_iterator connit,
     else if (post_result == p2u::nntp::post_result::POST_FAILURE)
     {
         // Retry the post
-        (*connit)->async_post(msg,
-                std::bind(&p2u::nntp::usenet::on_post_finished, this,
-                    connit, msg, std::placeholders::_1));
+        (*connit)->async_post(msg);
     }
     else if (post_result ==
             p2u::nntp::post_result::POST_FAILURE_CONNECTION_ERROR)
@@ -136,8 +132,7 @@ void p2u::nntp::usenet::on_post_finished(connection_handle_iterator connit,
 
         (*connit)->close();
 
-        (*connit)->async_connect(std::bind(&p2u::nntp::usenet::on_connected,
-                    this, connit, std::placeholders::_1));
+        (*connit)->async_connect();
     }
     else
     {
@@ -188,7 +183,8 @@ void p2u::nntp::usenet::add_connections(const p2u::nntp::connection_info& connin
         m_busy.emplace_back(std::make_unique<p2u::nntp::connection>(m_iosvc,
                     *it.info));
         auto connit = std::prev(m_busy.end());
-        (*connit)->async_connect(std::bind(&p2u::nntp::usenet::on_connected,
-                    this, connit, std::placeholders::_1));
+        (*connit)->set_post_handler(std::bind(&p2u::nntp::usenet::on_post_finished, this, connit, std::placeholders::_1, std::placeholders::_2));
+        (*connit)->set_connect_handler(std::bind(&p2u::nntp::usenet::on_connected, this, connit, std::placeholders::_1));
+        (*connit)->async_connect();
     }
 }

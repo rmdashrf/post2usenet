@@ -4,6 +4,7 @@
 #include <boost/asio.hpp>
 #include <boost/asio/spawn.hpp>
 #include <boost/asio/ssl/stream.hpp>
+#include "../util/asio_helpers.hpp"
 
 
 using namespace boost::asio::ip;
@@ -64,7 +65,7 @@ namespace p2u
 
             public:
                 using connect_handler = std::function<void(connect_result)>;
-                using post_handler = std::function<void(post_result)>;
+                using post_handler = std::function<void(const std::shared_ptr<article>&, post_result)>;
                 using stat_handler = std::function<void(stat_result)>;
 
             private:
@@ -99,66 +100,100 @@ namespace p2u
                 };
 
                 tcp::socket m_sock;
+                tcp::resolver m_resolver;
                 state m_state; // because boost MSL would be overkill
                 const connection_info& m_conninfo;
                 boost::asio::streambuf m_readbuf;
                 std::unique_ptr<ssl_context> m_sslctx;
                 std::unique_ptr<ssl_stream> m_sslstream;
-                boost::asio::strand m_strand;
 
                 boost::asio::deadline_timer m_timer;
 
-                void do_connect(connect_handler completion_handler,
-                                boost::asio::yield_context yield);
+                connect_handler m_connecthandler;
+                post_handler m_posthandler;
 
-                bool do_authenticate(boost::asio::yield_context& yield);
+                std::shared_ptr<article> m_article;
+                std::vector<boost::asio::const_buffer> m_send_parts;
+                std::string m_postheader;
 
-                void do_post(const std::shared_ptr<article>& message,
-                             post_handler handler,
-                             boost::asio::yield_context yield);
+                void do_connect();
 
-                void do_stat(const std::string& messageid,
-                             stat_handler handler,
-                             boost::asio::yield_context yield);
+                void do_authenticate();
+
+                void do_post();
+                void send_article();
+                void do_stat(const std::string& messageid);
 
                 void initSSL();
 
-                std::string read_line(boost::asio::yield_context& yield);
+
+                template <class CompletionHandler>
+                void read_line(CompletionHandler handler)
+                {
+
+                    timeout_next_async_operation(5);
+                    auto _dispatch = [this,handler](const boost::system::error_code& ec, const std::string& line)
+                    {
+                        if (!ec)
+                        {
+                            m_timer.cancel();
+                        }
+
+                        handler(ec, line);
+                    };
+
+                    if (m_sslstream)
+                    {
+                        p2u::asio::async_read_line(*m_sslstream, m_readbuf, _dispatch);
+                    } else
+                    {
+                        p2u::asio::async_read_line(m_sock, m_readbuf, _dispatch);
+                    }
+                }
 
                 void timeout_next_async_operation(int seconds);
                 void cancel_sock_operation(const boost::system::error_code& ec);
 
-                template <class ConstBufferSequence>
-                size_t write(const ConstBufferSequence& buffers,
-                             boost::asio::yield_context yield)
+                template <class ConstBufferSequence, class CompletionHandler>
+                void write(const ConstBufferSequence& buffers, CompletionHandler completion_handler)
                 {
                     timeout_next_async_operation(5);
-                    size_t ret;
+
+                    auto _complete = [this,completion_handler](const boost::system::error_code& ec, size_t bytes_transferred)
+                    {
+                        m_timer.cancel();
+                        completion_handler(ec, bytes_transferred);
+                    };
+
                     if (m_sslstream)
                     {
-                        ret = boost::asio::async_write(*m_sslstream, buffers,
-                                                        yield);
+                        boost::asio::async_write(*m_sslstream, buffers, _complete);
                     }
                     else
                     {
-                        ret = boost::asio::async_write(m_sock, buffers, yield);
+                        boost::asio::async_write(m_sock, buffers, _complete);
                     }
-                    m_timer.cancel();
-                    return ret;
                 }
 
-                void send_authinfo_username(boost::asio::yield_context& yield);
-                void send_authinfo_password(boost::asio::yield_context& yield);
-                void send_stat_cmd(const std::string& mid,
-                                   boost::asio::yield_context& yield);
+                void send_authinfo_username();
+                void send_authinfo_password();
+                void send_stat_cmd(const std::string& mid);
+
+                void check_authinfo_result(const std::string& line);
+                void post_handler_callback(post_result result);
+                void connect_handler_callback(connect_result result);
+
+
 
             public:
                 connection(boost::asio::io_service& io_service,
                            const connection_info& conn);
 
-                void async_connect(connect_handler handler);
-                bool async_post(const std::shared_ptr<article>& message,
-                                post_handler handler);
+                void set_post_handler(const post_handler& handler);
+                void set_connect_handler(const connect_handler& handler);
+
+                void async_connect();
+                bool async_post(const std::shared_ptr<article>& message);
 
                 bool async_stat(const std::string& messageid,
                                 stat_handler handler);

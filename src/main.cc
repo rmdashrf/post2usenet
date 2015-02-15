@@ -95,6 +95,7 @@ int main(int argc, const char* argv[])
 
     usenet.start();
     std::string run_nonce = get_run_nonce(16);
+    std::cout << "using run nonce of " << run_nonce << std::endl;
 
     size_t num_total_files = postitems.get_num_files();
     size_t total_parts = postitems.get_total_pieces();
@@ -109,7 +110,11 @@ int main(int argc, const char* argv[])
                 bytes_posted += article->get_payload_size();
 
                 auto seconds_elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - post_start).count();
-                uint64_t speed_kb = (bytes_posted / seconds_elapsed) / 1024;
+                uint64_t speed_kb;
+                if (seconds_elapsed != 0)
+                {
+                    speed_kb = (bytes_posted / seconds_elapsed) / 1024;
+                }
 
                 std::cout << "POST FINISH ## " << article->get_header().subject << " ## Pieces Remaining: " << (total_parts - num_posted) << " ## Average Speed: " << speed_kb << " KB/s" << std::endl;
 
@@ -139,7 +144,6 @@ int main(int argc, const char* argv[])
 
             auto article = std::make_shared<p2u::nntp::article>(header);
             article->add_payload_piece(std::move(chunk));
-            std::cout << "Enqueuing " << cur_file_name << " piece " << pieceIndex << std::endl;
             usenet.enqueue_post(article);
         }
     }

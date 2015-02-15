@@ -69,7 +69,17 @@ void usenet_session(std::unique_ptr<ssl_socket> sockptr)
             std::ofstream outfile{tmpfilename};
 
             do {
+                line.clear();
                 line = read_line(socket, readbuf);
+        for (size_t i = 0; i < line.length(); ++i)
+        {
+            if (line[i] == 0)
+            {
+                std::cout << "NULL BYTE ENCOUNTERED!" << std::endl;
+                std::cout << line << std::endl;
+                std::terminate();
+            }
+        }
                 outfile.write(line.c_str(), line.size());
         //        std::cout << "Got line: " << line << std::endl;
             } while (line != ".\r\n");
