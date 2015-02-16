@@ -51,7 +51,7 @@ p2u::util::yencgenerator::get_part(size_t partnumber)
     stream << "=ybegin part=" << partnumber+1 << " total=" << num_parts()
         << " line=" << m_linesize
         << " size=" << m_filesize
-        << " name=" << m_filepath.filename() << "\r\n";
+        << " name=" << m_filepath.filename().generic_string() << "\r\n";
     std::string line = stream.str();
     ret.insert(ret.end(), line.begin(), line.end());
 
