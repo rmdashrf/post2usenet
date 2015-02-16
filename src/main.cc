@@ -254,8 +254,10 @@ int main(int argc, const char* argv[])
         {
             std::cout << "ERROR: Cannot open " << cfg.nzboutput << " for writing. Nzb output discarded." << std::endl;
         }
-
-        write_nzb(nzboutstream, postitems, cfg, piece_sizes, run_nonce);
+        else
+        {
+            write_nzb(nzboutstream, postitems, cfg, piece_sizes, run_nonce);
+        }
     }
 
     usenet.stop();
