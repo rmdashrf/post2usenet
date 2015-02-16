@@ -47,7 +47,6 @@ void p2u::nntp::usenet::enqueue_post(const std::shared_ptr<p2u::nntp::article>& 
 
     if (m_maxsize != 0 && m_queue.size() >= m_maxsize)
     {
-        std::cout << "Waiting for queue to free up " << std::endl;
         m_queuecv.wait(_lock,
                 [this](){return m_queue.size() < m_maxsize;});
     }
@@ -127,7 +126,7 @@ void p2u::nntp::usenet::on_post_finished(connection_handle_iterator connit,
         // point it doesn't matter. So what if the queue size is slightly bigger?
         // We need to make sure that this post gets handled.
         //
-        std::cout << "Fatal connection error occurred. Requeueing " << msg->get_header().subject << " and attempting to reconnect.. " << std::endl;
+        std::cout << "[ERROR] Fatal connection error occurred. Requeueing " << msg->get_header().subject << " and attempting to reconnect.. " << std::endl;
         m_queue.push_back(std::bind(&p2u::nntp::usenet::start_async_post, this, std::placeholders::_1, msg));
 
         (*connit)->close();

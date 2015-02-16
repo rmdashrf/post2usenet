@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <iomanip>
 #include <random>
 #include <chrono>
@@ -6,14 +7,7 @@
 #include "fileset.hpp"
 #include "nntp/message.hpp"
 #include "nntp/usenet.hpp"
-
-static std::string get_message_id(const std::string& base, size_t fileIndex,
-                                  size_t pieceIndex)
-{
-    std::ostringstream stream;
-    stream << "<" << base << "." << fileIndex << "." << pieceIndex << "@post2usenet>";
-    return stream.str();
-}
+#include <boost/algorithm/string/replace.hpp>
 
 static std::string get_run_nonce(size_t length)
 {
@@ -30,6 +24,64 @@ static std::string get_run_nonce(size_t length)
     }
 
     return stream.str();
+}
+
+std::string ghetto_xml_escape(const std::string& str)
+{
+    auto escaped = str;
+    boost::algorithm::replace_all(escaped, "\"", "&quot;");
+    boost::algorithm::replace_all(escaped, "'", "&apos;");
+    boost::algorithm::replace_all(escaped, "<", "&lt;");
+    boost::algorithm::replace_all(escaped, ">", "&gt;");
+    boost::algorithm::replace_all(escaped, ">", "&amp;");
+    return escaped;
+}
+
+using piece_size_map = std::map<size_t, size_t>;
+
+void write_nzb(std::ostream& stream, const fileset& files, const prog_config& cfg, const std::vector<piece_size_map>& piece_sizes, const std::string& nonce)
+{
+    auto epoch_time = std::chrono::system_clock::now().time_since_epoch().count();
+
+    stream << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" << std::endl;
+    stream << "<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//END\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">" << std::endl;
+    stream << "<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">" << std::endl;
+    stream << std::endl;
+
+    for (size_t i = 0; i < files.get_num_files(); ++i)
+    {
+        stream << "<file poster=\"" << ghetto_xml_escape(cfg.from)
+            << "\" date=\"" << epoch_time
+            << "\" subject=\""
+            << ghetto_xml_escape(files.get_usenet_subject(cfg.subject, i, 0)) << "\">" << std::endl;
+
+        stream << "<groups>" << std::endl;
+        for (const auto& group : cfg.groups)
+        {
+            stream << "<group>" << group << "</group>" << std::endl;
+        }
+        stream << "</groups>" << std::endl;
+
+        stream << "<segments>" << std::endl;
+        for (size_t pieceIndex = 0; pieceIndex < files.get_num_pieces(i); ++pieceIndex)
+        {
+            auto it = piece_sizes[i].find(pieceIndex);
+
+            auto msg_id = files.get_usenet_message_id(nonce, i, pieceIndex);
+            boost::algorithm::replace_all(msg_id, "<", "");
+            boost::algorithm::replace_all(msg_id, ">", "");
+
+            stream << "<segment bytes=\"" << it->second
+                << "\" number=\"" << pieceIndex + 1
+                << "\">" << msg_id
+                << "</segment>" << std::endl;
+        }
+
+        stream << "</segments>" << std::endl;
+        stream << "</file>" << std::endl;
+    }
+
+    stream << "</nzb>" << std::endl;
 }
 
 int main(int argc, const char* argv[])
@@ -53,6 +105,16 @@ int main(int argc, const char* argv[])
         {
             std::cout << "You are attempting to posting multiple files. Please specify a subject to identify this grouping of files" << std::endl;
             return 1;
+        }
+    }
+
+    if (!cfg.nzboutput.empty())
+    {
+        fs::path p{cfg.nzboutput};
+        if (boost::filesystem::is_directory(p))
+        {
+            fs::path file_out{cfg.subject + ".nzb"};
+            cfg.nzboutput = (p / file_out).generic_string();
         }
     }
 
@@ -95,7 +157,6 @@ int main(int argc, const char* argv[])
 
     usenet.start();
     std::string run_nonce = get_run_nonce(16);
-    std::cout << "using run nonce of " << run_nonce << std::endl;
 
     size_t num_total_files = postitems.get_num_files();
     size_t total_parts = postitems.get_total_pieces();
@@ -110,37 +171,53 @@ int main(int argc, const char* argv[])
                 bytes_posted += article->get_payload_size();
 
                 auto seconds_elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - post_start).count();
-                uint64_t speed_kb;
+                uint64_t speed_kb = 0;
                 if (seconds_elapsed != 0)
                 {
                     speed_kb = (bytes_posted / seconds_elapsed) / 1024;
                 }
 
-                std::cout << "POST FINISH ## " << article->get_header().subject << " ## Pieces Remaining: " << (total_parts - num_posted) << " ## Average Speed: " << speed_kb << " KB/s" << std::endl;
+                // total bytes is the total # of actual data.
+                // there will be yEnc overhead, so bytes_posted will usually always be larger than percentage_complete
+                // However, I see no reason to go through all of the chunks and compute their yenc encoding just because we want to have a more
+                // accurate report.
+                //
+                // According to wikipedia, yenc has (on average) about 1-2% overhead. This is why we use the fudge factor of 0.98 and cap the percentage_complete
+                // to 100%
+                int percentage_complete = static_cast<int>(((bytes_posted * 0.98)/ total_bytes)* 100);
 
+                if (percentage_complete > 100)
+                {
+                    percentage_complete = 100;
+                }
+                std::cout << "STATUS> " << percentage_complete << "% - Pieces Remaining: " << (total_parts - num_posted) << " Average Speed: " << speed_kb << " KB/s" << std::endl;
             });
+
+    std::vector<piece_size_map> piece_sizes;
 
     for (size_t fileIndex = 0; fileIndex < num_total_files; ++fileIndex)
     {
         size_t num_pieces = postitems.get_num_pieces(fileIndex);
         auto cur_file_name = postitems.get_file_name(fileIndex);
+        piece_sizes.emplace_back();
+
         for (size_t pieceIndex = 0; pieceIndex < num_pieces; ++pieceIndex)
         {
-            // Article subject name
-            std::ostringstream article_subject;
-            article_subject << cfg.subject << " [" << fileIndex+1 << "/" << num_total_files << "] - \"" << cur_file_name << "\" yEnc (" << pieceIndex+1 << "/" << num_pieces << ")";
-
             // Body
             auto chunk = postitems.get_chunk(fileIndex, pieceIndex);
 
+            piece_sizes[fileIndex][pieceIndex] = chunk.size();
 
             // Header
             p2u::nntp::header header;
+
             header.from = cfg.from;
-            header.subject = article_subject.str();
+            header.subject = postitems.get_usenet_subject(cfg.subject, fileIndex, pieceIndex);
             std::copy(cfg.groups.begin(), cfg.groups.end(), std::back_inserter(header.newsgroups));
             header.additional.push_back({"X-Newsposter", "post2usenet"});
-            header.additional.push_back({"Message-ID", get_message_id(run_nonce, fileIndex, pieceIndex)});
+            header.additional.push_back({"Message-ID",
+                    postitems.get_usenet_message_id(run_nonce, fileIndex,
+                        pieceIndex)});
 
             auto article = std::make_shared<p2u::nntp::article>(header);
             article->add_payload_piece(std::move(chunk));
@@ -148,9 +225,22 @@ int main(int argc, const char* argv[])
         }
     }
 
+    if (!cfg.nzboutput.empty())
+    {
+        std::ofstream nzboutstream;
+        nzboutstream.open(cfg.nzboutput.c_str());
+        if (!nzboutstream.is_open())
+        {
+            std::cout << "ERROR: Cannot open " << cfg.nzboutput << " for writing. Nzb output discarded." << std::endl;
+        }
+
+        write_nzb(nzboutstream, postitems, cfg, piece_sizes, run_nonce);
+    }
+
     usenet.stop();
     usenet.join();
     std::cout << "Finished posting!" << std::endl;
+
     return 0;
 }
 

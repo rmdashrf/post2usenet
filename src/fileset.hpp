@@ -27,6 +27,8 @@ class fileset
         size_t get_total_pieces() const;
 
         chunk get_chunk(size_t fileindex, size_t pieceindex);
+        std::string get_usenet_subject(const std::string& subject, size_t fileIndex, size_t pieceIndex) const;
+        std::string get_usenet_message_id(const std::string& nonce, size_t fileIndex, size_t pieceIndex) const;
 
 };
 #endif

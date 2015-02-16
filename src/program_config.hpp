@@ -19,6 +19,7 @@ struct prog_config
     bool raw;
     std::vector<boost::filesystem::path> files;
     std::vector<std::string> groups;
+    std::string nzboutput;
 };
 
 bool load_program_config(int argc, const char* argv[], prog_config& cfg);
