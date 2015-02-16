@@ -121,7 +121,7 @@ static void read_cmdline_args(const po::variables_map& vm, prog_config& cfg)
         cfg.subject = vm["subject"].as<std::string>();
     }
 
-    cfg.validate_posts = vm["validate"].as<bool>();
+    cfg.validate_posts = vm.count("validate");
     cfg.raw = vm["raw"].as<bool>();
 
     auto& files = vm["file"].as<std::vector<std::string>>();
@@ -155,7 +155,7 @@ bool load_program_config(int argc, const char* argv[], prog_config& cfg)
         ("help,h", "Show this message")
         ("articlesize,a", po::value<int>(), "Size in bytes of each article")
         ("raw,r", po::value<bool>()->default_value(true), "Raw post mode. Emulates GoPostStuff, newsmangler, etc.")
-        ("validate,v", po::value<bool>()->default_value(false), "Validate articles after post. Issues STAT command to ensure article was properly posted. Repost articles if bad.")
+        ("validate,v", "Validate articles after post. Issues STAT command to ensure article was properly posted. Repost articles if bad.")
         ("subject,s", po::value<std::string>(), "Subject of the post. By default, will be set to the folder name if input is a folder, otherwise will be set to the filename")
         ("config,c", po::value<std::string>(), "Specifies configuration file path")
         ("output,o", po::value<std::string>(), "Specifies output NZB file/directory")

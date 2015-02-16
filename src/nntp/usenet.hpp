@@ -49,6 +49,7 @@ namespace p2u
 
                 using on_finish_post = std::function<void(const std::shared_ptr<p2u::nntp::article>&)>;
                 using on_finish_validate = std::function<void(const std::string& str)>;
+                using on_finish_stat = std::function<void(const std::string&, stat_result)>;
 
                 // Async-IO service
                 boost::asio::io_service m_iosvc;
@@ -118,6 +119,7 @@ namespace p2u
 
                 on_finish_post m_slot_finish_post;
                 on_finish_validate m_slot_finish_validate;
+                on_finish_stat m_slot_finish_stat;
 
 
                 void on_conn_becomes_ready(connection_handle_iterator conn);
@@ -126,12 +128,18 @@ namespace p2u
                         const std::shared_ptr<p2u::nntp::article>& msg,
                         p2u::nntp::post_result post_result);
 
+                void on_stat_finished(connection_handle_iterator conn,
+                        const std::string& msgid,
+                        p2u::nntp::stat_result stat_result);
+
                 void on_connected(connection_handle_iterator conn,
                         p2u::nntp::connect_result result);
 
                 void start_async_post(connection_handle_iterator conn,
                                      const std::shared_ptr<article>& msg);
 
+                void start_async_stat(connection_handle_iterator conn,
+                                     const std::string& msgid);
             public:
                 usenet(size_t iothreads);
                 usenet(size_t iothreads, size_t max_queue_size);
@@ -149,7 +157,9 @@ namespace p2u
                  * caller
                  */
                 void enqueue_post(const std::shared_ptr<article>& msg);
+                void enqueue_stat(const std::string& msgid);
                 void set_post_finished_callback(on_finish_post func);
+                void set_stat_finished_callback(on_finish_stat func);
 
                 void start();
                 void stop();

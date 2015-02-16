@@ -27,6 +27,41 @@ void p2u::nntp::usenet::start_async_post(connection_handle_iterator conn,
     connection->async_post(msg);
 }
 
+void p2u::nntp::usenet::start_async_stat(connection_handle_iterator conn,
+                                         const std::string& msgid)
+{
+    auto& connection = *conn;
+    connection->async_stat(msgid);
+}
+
+void p2u::nntp::usenet::enqueue_stat(const std::string& msgid)
+{
+    std::unique_lock<std::mutex> _lock{m_bfm};
+
+    if (m_ready.size() > 0)
+    {
+        // Directly enqueue the task.
+
+        // Get the iterator to the connection_handle that will enqueue the task
+        auto it = m_ready.begin();
+
+        // Transfer it into the busy list. This does not invalidate the iterator
+        m_busy.splice(m_busy.begin(), m_ready, it);
+
+        start_async_stat(it, msgid);
+        return;
+    }
+
+    if (m_maxsize != 0 && m_queue.size() >= m_maxsize)
+    {
+        m_queuecv.wait(_lock,
+                [this](){return m_queue.size() < m_maxsize;});
+    }
+
+    // Defer the start_async_post to a connection that will become ready.
+    m_queue.push_back(std::bind(&p2u::nntp::usenet::start_async_stat, this, std::placeholders::_1, msgid));
+}
+
 void p2u::nntp::usenet::enqueue_post(const std::shared_ptr<p2u::nntp::article>& msg)
 {
     std::unique_lock<std::mutex> _lock{m_bfm};
@@ -101,6 +136,30 @@ void p2u::nntp::usenet::on_connected(connection_handle_iterator connit,
     }
 }
 
+void p2u::nntp::usenet::on_stat_finished(connection_handle_iterator conn,
+                                         const std::string& msgid,
+                                         p2u::nntp::stat_result stat_result)
+{
+    if (stat_result == p2u::nntp::stat_result::CONNECTION_ERROR)
+    {
+        std::cout << "[ERROR] Stat for " << msgid << " failed with connection error. Retrying.." << std::endl;
+        std::lock_guard<std::mutex> _lock{m_bfm};
+        m_queue.push_back(std::bind(&p2u::nntp::usenet::start_async_stat, this, std::placeholders::_1, msgid));
+
+        (*conn)->close();
+        (*conn)->async_connect();
+    }
+    else
+    {
+        on_conn_becomes_ready(conn);
+        // Pass through to our observers
+        if (m_slot_finish_stat)
+        {
+            m_slot_finish_stat(msgid, stat_result);
+        }
+    }
+}
+
 void p2u::nntp::usenet::on_post_finished(connection_handle_iterator connit,
                                 const std::shared_ptr<p2u::nntp::article>& msg,
                                 p2u::nntp::post_result post_result)
@@ -108,6 +167,7 @@ void p2u::nntp::usenet::on_post_finished(connection_handle_iterator connit,
 
     if (post_result == p2u::nntp::post_result::POSTING_NOT_PERMITTED)
     {
+        // TODO
         // We can't post on this connection. For now, we will consider this
         // an unrecoverable error on the user's part. Abort the program here.
         throw std::runtime_error{"Posting not permitted on one of our connections"};
@@ -121,13 +181,13 @@ void p2u::nntp::usenet::on_post_finished(connection_handle_iterator connit,
             p2u::nntp::post_result::POST_FAILURE_CONNECTION_ERROR)
     {
 
+        std::cout << "[ERROR] Fatal connection error occurred. Requeueing " << msg->get_header().subject << " and attempting to reconnect.. " << std::endl;
         std::lock_guard<std::mutex> _lock{m_bfm};
         // Yes, we could be violating the "max queue" size here, but at this
         // point it doesn't matter. So what if the queue size is slightly bigger?
         // We need to make sure that this post gets handled.
         //
-        std::cout << "[ERROR] Fatal connection error occurred. Requeueing " << msg->get_header().subject << " and attempting to reconnect.. " << std::endl;
-        m_queue.push_back(std::bind(&p2u::nntp::usenet::start_async_post, this, std::placeholders::_1, msg));
+        m_queue.push_front(std::bind(&p2u::nntp::usenet::start_async_post, this, std::placeholders::_1, msg));
 
         (*connit)->close();
 
@@ -170,6 +230,11 @@ void p2u::nntp::usenet::set_post_finished_callback(on_finish_post func)
     m_slot_finish_post = func;
 }
 
+void p2u::nntp::usenet::set_stat_finished_callback(on_finish_stat func)
+{
+    m_slot_finish_stat = func;
+}
+
 void p2u::nntp::usenet::add_connections(const p2u::nntp::connection_info& conninfo,
                                         size_t num_connections)
 {
@@ -183,6 +248,7 @@ void p2u::nntp::usenet::add_connections(const p2u::nntp::connection_info& connin
                     *it.info));
         auto connit = std::prev(m_busy.end());
         (*connit)->set_post_handler(std::bind(&p2u::nntp::usenet::on_post_finished, this, connit, std::placeholders::_1, std::placeholders::_2));
+        (*connit)->set_stat_handler(std::bind(&p2u::nntp::usenet::on_stat_finished, this, connit, std::placeholders::_1, std::placeholders::_2));
         (*connit)->set_connect_handler(std::bind(&p2u::nntp::usenet::on_connected, this, connit, std::placeholders::_1));
         (*connit)->async_connect();
     }

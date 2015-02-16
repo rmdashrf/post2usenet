@@ -149,6 +149,7 @@ int main(int argc, const char* argv[])
         }
     }
 
+
     p2u::nntp::usenet usenet{cfg.io_threads, cfg.queue_size};
     for (const auto& p : cfg.servers)
     {
@@ -164,6 +165,13 @@ int main(int argc, const char* argv[])
     uint64_t bytes_posted = 0;
 
     auto post_start = std::chrono::system_clock::now();
+
+
+    usenet.set_stat_finished_callback([&](const std::string& msgid, p2u::nntp::stat_result result)
+            {
+                // TODO: Resubmit appropriate piece when stat result fails.
+                std::cout << "HEADER CHECK> " << msgid << " - " << (result == p2u::nntp::stat_result::ARTICLE_EXISTS ? "OK" : "FAIL") << std::endl;
+            });
 
     usenet.set_post_finished_callback([&](const std::shared_ptr<p2u::nntp::article>& article)
             {
@@ -223,6 +231,18 @@ int main(int argc, const char* argv[])
             auto article = std::make_shared<p2u::nntp::article>(header);
             article->add_payload_piece(std::move(chunk));
             usenet.enqueue_post(article);
+        }
+    }
+
+    if (cfg.validate_posts)
+    {
+        for (size_t fileIndex = 0; fileIndex < num_total_files; ++fileIndex)
+        {
+            size_t num_pieces = postitems.get_num_pieces(fileIndex);
+            for (size_t pieceIndex = 0; pieceIndex < num_pieces; ++pieceIndex)
+            {
+                usenet.enqueue_stat(postitems.get_usenet_message_id(run_nonce, fileIndex, pieceIndex));
+            }
         }
     }
 

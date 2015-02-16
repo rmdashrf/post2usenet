@@ -66,7 +66,7 @@ namespace p2u
             public:
                 using connect_handler = std::function<void(connect_result)>;
                 using post_handler = std::function<void(const std::shared_ptr<article>&, post_result)>;
-                using stat_handler = std::function<void(stat_result)>;
+                using stat_handler = std::function<void(const std::string& msgid, stat_result)>;
 
             private:
                 /**
@@ -111,10 +111,13 @@ namespace p2u
 
                 connect_handler m_connecthandler;
                 post_handler m_posthandler;
+                stat_handler m_stathandler;
 
                 std::shared_ptr<article> m_article;
                 std::vector<boost::asio::const_buffer> m_send_parts;
                 std::string m_postheader;
+
+                std::string m_msgid;
 
                 void do_connect();
 
@@ -122,7 +125,7 @@ namespace p2u
 
                 void do_post();
                 void send_article();
-                void do_stat(const std::string& messageid);
+                void do_stat();
 
                 void initSSL();
 
@@ -182,8 +185,7 @@ namespace p2u
                 void check_authinfo_result(const std::string& line);
                 void post_handler_callback(post_result result);
                 void connect_handler_callback(connect_result result);
-
-
+                void stat_handler_callback(stat_result result);
 
             public:
                 connection(boost::asio::io_service& io_service,
@@ -191,12 +193,12 @@ namespace p2u
 
                 void set_post_handler(const post_handler& handler);
                 void set_connect_handler(const connect_handler& handler);
+                void set_stat_handler(const stat_handler& handler);
 
                 void async_connect();
                 bool async_post(const std::shared_ptr<article>& message);
 
-                bool async_stat(const std::string& messageid,
-                                stat_handler handler);
+                bool async_stat(const std::string& messageid);
                 void close();
                 boost::asio::io_service& get_io_service();
                 ~connection();

@@ -14,6 +14,7 @@
 #include <boost/utility/string_ref.hpp>
 #include <boost/algorithm/string.hpp>
 #include <array>
+#include <cassert>
 
 #include "message.hpp"
 #include "connection.hpp"
@@ -351,6 +352,11 @@ void p2u::nntp::connection::set_connect_handler(const connect_handler& handler)
     m_connecthandler = handler;
 }
 
+void p2u::nntp::connection::set_stat_handler(const stat_handler& handler)
+{
+    m_stathandler = handler;
+}
+
 bool p2u::nntp::connection::async_post(const std::shared_ptr<article>& message)
 {
     if (m_state != state::CONNECTED_AND_AUTHENTICATED)
@@ -365,57 +371,79 @@ bool p2u::nntp::connection::async_post(const std::shared_ptr<article>& message)
     return true;
 }
 
-/*
-void p2u::nntp::connection::send_stat_cmd(const std::string& mid)
+
+void p2u::nntp::connection::stat_handler_callback(stat_result result)
 {
+    m_state = state::CONNECTED_AND_AUTHENTICATED;
+    get_io_service().post([this, msgid=this->m_msgid, result]()
+            {
+                if (m_stathandler)
+                {
+                    m_stathandler(msgid, result);
+                }
+                else
+                {
+                    std::cout << "[WARN] Stat handler not set. Discarding result for " << m_msgid << std::endl;
+                }
+            });
+    m_msgid.clear();
+}
+
+void p2u::nntp::connection::do_stat()
+{
+    m_state = state::BUSY;
+
     std::array<boost::asio::const_buffer, 3> parts = {
         boost::asio::buffer(protocol::STAT),
-        boost::asio::buffer(mid),
+        boost::asio::buffer(m_msgid),
         boost::asio::buffer(protocol::CRLF)
     };
 
-    write(parts, yield);
-}
-
-void p2u::nntp::connection::do_stat(const std::string& mid,
-                                    stat_handler handler,
-                                    boost::asio::yield_context yield)
-{
-    try
+    write(parts, [this](const boost::system::error_code& ec, size_t)
     {
-        send_stat_cmd(mid, yield);
-        std::string line = read_line(yield);
-
-        if (line[0] == '2')
+        if (!ec)
         {
-            // 223 article exists
-            m_strand.post(std::bind(handler, stat_result::ARTICLE_EXISTS));
+            read_line([this](const boost::system::error_code& ec, const std::string& line)
+                {
+                    if (!ec)
+                    {
+
+                        if (line[0] == '2')
+                        {
+                            stat_handler_callback(stat_result::ARTICLE_EXISTS);
+                        }
+                        else
+                        {
+                            // 430 no article with that message-id
+                            stat_handler_callback(stat_result::INVALID_ARTICLE);
+                        }
+                    }
+                    else
+                    {
+                        stat_handler_callback(stat_result::CONNECTION_ERROR);
+                    }
+                });
         }
         else
         {
-            // 430 no article with that message-id
-            m_strand.post(std::bind(handler, stat_result::INVALID_ARTICLE));
+            stat_handler_callback(stat_result::CONNECTION_ERROR);
         }
-    }
-    catch (std::exception& e)
-    {
-        m_strand.post(std::bind(handler, stat_result::CONNECTION_ERROR));
-    }
+    });
 }
 
-bool p2u::nntp::connection::async_stat(const std::string& mid,
-                                       stat_handler handler)
+bool p2u::nntp::connection::async_stat(const std::string& mid)
 {
     if (m_state != state::CONNECTED_AND_AUTHENTICATED)
     {
+        assert(false);
         return false;
     }
 
-    boost::asio::spawn(m_strand, std::bind(&connection::do_stat, this, mid,
-                handler, std::placeholders::_1));
+    m_msgid = mid;
+
+    get_io_service().post([this, mid](){ do_stat(); });
     return true;
 }
-*/
 
 
 void p2u::nntp::connection::close()
