@@ -186,11 +186,12 @@ int main(int argc, const char* argv[])
                 // to 100%
                 int percentage_complete = static_cast<int>(((bytes_posted * 0.98)/ total_bytes)* 100);
 
-                if (percentage_complete > 100)
+                size_t pieces_remaining = total_parts - num_posted;
+                if (percentage_complete > 100 || pieces_remaining == 0)
                 {
                     percentage_complete = 100;
                 }
-                std::cout << "STATUS> " << percentage_complete << "% - Pieces Remaining: " << (total_parts - num_posted) << " Average Speed: " << speed_kb << " KB/s" << std::endl;
+                std::cout << "STATUS> " << percentage_complete << "% - Pieces Remaining: " << pieces_remaining << " - Average Speed: " << speed_kb << " KB/s" << std::endl;
             });
 
     std::vector<piece_size_map> piece_sizes;
