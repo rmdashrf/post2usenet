@@ -326,6 +326,7 @@ void p2u::nntp::connection::send_article()
                                 }
                                 else
                                 {
+                                    std::cout << "[WARN] Post failure. Server responded: " << line << std::endl;
                                     post_handler_callback(post_result::POST_FAILURE);
                                 }
                             }

@@ -175,6 +175,7 @@ void p2u::nntp::usenet::on_post_finished(connection_handle_iterator connit,
     else if (post_result == p2u::nntp::post_result::POST_FAILURE)
     {
         // Retry the post
+        std::cout << "[WARN] Post failure on " << msg->get_header().subject << ". Retrying... " << std::endl;
         (*connit)->async_post(msg);
     }
     else if (post_result ==
