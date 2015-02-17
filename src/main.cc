@@ -9,13 +9,15 @@
 #include "nntp/usenet.hpp"
 #include <boost/algorithm/string/replace.hpp>
 
+const int NONCE_LENGTH = 16;
+using msgid_exceptions_map = std::map<filepiece_key, std::string>;
+
+static std::mt19937 rng{static_cast<std::mt19937::result_type>(
+            std::chrono::system_clock::now().time_since_epoch().count())};
+
 static std::string get_run_nonce(size_t length)
 {
     static const char choices[] = "abcdefghijklmnopqrstuvwxyz1234567890";
-
-    std::mt19937 rng{static_cast<std::mt19937::result_type>(
-            std::chrono::system_clock::now().time_since_epoch().count())};
-
     std::ostringstream stream;
 
     for (size_t i = 0; i < length; ++i)
@@ -39,7 +41,7 @@ std::string ghetto_xml_escape(const std::string& str)
 
 using piece_size_map = std::map<size_t, size_t>;
 
-void write_nzb(std::ostream& stream, const fileset& files, const prog_config& cfg, const std::vector<piece_size_map>& piece_sizes, const std::string& nonce)
+void write_nzb(std::ostream& stream, const fileset& files, const prog_config& cfg, const std::vector<piece_size_map>& piece_sizes, const std::string& nonce, const msgid_exceptions_map& exceptions)
 {
     auto epoch_time = std::chrono::system_clock::now().time_since_epoch().count();
 
@@ -67,7 +69,9 @@ void write_nzb(std::ostream& stream, const fileset& files, const prog_config& cf
         {
             auto it = piece_sizes[i].find(pieceIndex);
 
-            auto msg_id = files.get_usenet_message_id(nonce, i, pieceIndex);
+            auto exception_it = exceptions.find({i, pieceIndex});
+            const auto& actual_nonce = exception_it == exceptions.end() ? nonce : exception_it->second;
+            auto msg_id = fileset::get_usenet_message_id(actual_nonce, i, pieceIndex);
             boost::algorithm::replace_all(msg_id, "<", "");
             boost::algorithm::replace_all(msg_id, ">", "");
 
@@ -145,7 +149,7 @@ int main(int argc, const char* argv[])
         }
         else
         {
-            std::cout << "WARNING: Ignoring " << path << " since it is neither a file nor a directory!" << std::endl;
+            std::cerr << "[WARN] Ignoring " << path << " since it is neither a file nor a directory!" << std::endl;
         }
     }
 
@@ -157,7 +161,7 @@ int main(int argc, const char* argv[])
     }
 
     usenet.start();
-    std::string run_nonce = get_run_nonce(16);
+    std::string run_nonce = get_run_nonce(NONCE_LENGTH);
 
     size_t num_total_files = postitems.get_num_files();
     size_t total_parts = postitems.get_total_pieces();
@@ -166,11 +170,24 @@ int main(int argc, const char* argv[])
 
     auto post_start = std::chrono::system_clock::now();
 
+    msgid_exceptions_map msgid_exceptions;
 
     usenet.set_stat_finished_callback([&](const std::string& msgid, p2u::nntp::stat_result result)
             {
                 // TODO: Resubmit appropriate piece when stat result fails.
                 std::cout << "HEADER CHECK> " << msgid << " - " << (result == p2u::nntp::stat_result::ARTICLE_EXISTS ? "OK" : "FAIL") << std::endl;
+            });
+
+
+    usenet.set_post_failed_callback([&](const std::shared_ptr<p2u::nntp::article>& article)
+            {
+                std::cerr << "[WARN] Posting " << article->get_header().subject << " failed. Retrying post.." << std::endl;
+                // Try changing the message id and restarting
+                auto key = fileset::get_key_from_message_id(article->get_header().msgid);
+                msgid_exceptions[key] = get_run_nonce(NONCE_LENGTH);
+                const_cast<p2u::nntp::header&>(article->get_header()).msgid =
+                    fileset::get_usenet_message_id(msgid_exceptions[key], key.file_index, key.piece_index);
+                usenet.enqueue_post(article);
             });
 
     usenet.set_post_finished_callback([&](const std::shared_ptr<p2u::nntp::article>& article)
@@ -185,14 +202,7 @@ int main(int argc, const char* argv[])
                     speed_kb = (bytes_posted / seconds_elapsed) / 1024;
                 }
 
-                // total bytes is the total # of actual data.
-                // there will be yEnc overhead, so bytes_posted will usually always be larger than percentage_complete
-                // However, I see no reason to go through all of the chunks and compute their yenc encoding just because we want to have a more
-                // accurate report.
-                //
-                // According to wikipedia, yenc has (on average) about 1-2% overhead. This is why we use the fudge factor of 0.98 and cap the percentage_complete
-                // to 100%
-                int percentage_complete = static_cast<int>(((bytes_posted * 0.98)/ total_bytes)* 100);
+                int percentage_complete = static_cast<int>((static_cast<float>(num_posted) / total_parts) * 100);
 
                 size_t pieces_remaining = total_parts - num_posted;
                 if (percentage_complete > 100 || pieces_remaining == 0)
@@ -222,11 +232,9 @@ int main(int argc, const char* argv[])
 
             header.from = cfg.from;
             header.subject = postitems.get_usenet_subject(cfg.subject, fileIndex, pieceIndex);
+            header.msgid = postitems.get_usenet_message_id(run_nonce, fileIndex, pieceIndex);
             std::copy(cfg.groups.begin(), cfg.groups.end(), std::back_inserter(header.newsgroups));
             header.additional.push_back({"X-Newsposter", "post2usenet"});
-            header.additional.push_back({"Message-ID",
-                    postitems.get_usenet_message_id(run_nonce, fileIndex,
-                        pieceIndex)});
 
             auto article = std::make_shared<p2u::nntp::article>(header);
             article->add_payload_piece(std::move(chunk));
@@ -234,6 +242,7 @@ int main(int argc, const char* argv[])
         }
     }
 
+    // TODO: Somehow figure out to validate the right posts. (When we retry, we generate a new message id)
     if (cfg.validate_posts)
     {
         for (size_t fileIndex = 0; fileIndex < num_total_files; ++fileIndex)
@@ -256,13 +265,12 @@ int main(int argc, const char* argv[])
         }
         else
         {
-            write_nzb(nzboutstream, postitems, cfg, piece_sizes, run_nonce);
+            write_nzb(nzboutstream, postitems, cfg, piece_sizes, run_nonce, msgid_exceptions);
         }
     }
 
     usenet.stop();
     usenet.join();
-    std::cout << "Finished posting!" << std::endl;
 
     return 0;
 }

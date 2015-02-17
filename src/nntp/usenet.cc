@@ -122,13 +122,13 @@ void p2u::nntp::usenet::on_connected(connection_handle_iterator connit,
 {
     if (result == p2u::nntp::connect_result::FATAL_CONNECT_ERROR)
     {
-        // TODO: Do something meaningful with the connect error.
-        throw std::runtime_error{"Connect error wtf..."};
+        std::cerr << "[ERROR] One of our connections could not connect. Hopefully somebody else can.." << std::endl;
+        discard_connection(connit);
     }
     else if (result == p2u::nntp::connect_result::INVALID_CREDENTIALS)
     {
-        // TODO: Can't use exceptions in real code yo
-        throw std::runtime_error{"Invalid credentials"};
+        std::cerr << "[ERROR] One of our connections reported invalid credentials. Hopefully there is someone else.." << std::endl;
+        discard_connection(connit);
     }
     else
     {
@@ -160,6 +160,44 @@ void p2u::nntp::usenet::on_stat_finished(connection_handle_iterator conn,
     }
 }
 
+void p2u::nntp::usenet::dispatch_or_queue(const queued_command& cmd, bool front)
+{
+    std::lock_guard<std::mutex> _lock{m_bfm};
+
+    if (m_ready.size() > 0)
+    {
+        // Get the iterator to the connection_handle that will enqueue the task
+        auto it = m_ready.begin();
+
+        // Transfer it into the busy list. This does not invalidate the iterator
+        m_busy.splice(m_busy.begin(), m_ready, it);
+        cmd(it);
+    }
+    else
+    {
+        if (front)
+        {
+            m_queue.push_front(cmd);
+        }
+        else
+        {
+            m_queue.push_back(cmd);
+        }
+    }
+}
+
+void p2u::nntp::usenet::discard_connection(connection_handle_iterator conn)
+{
+    std::lock_guard<std::mutex> _lock{m_bfm};
+    m_busy.erase(conn);
+
+    if (m_busy.size() == 0 && m_ready.size() == 0)
+    {
+        // We have no more connections to work with, so we can't do any work
+        m_work.reset();
+    }
+}
+
 void p2u::nntp::usenet::on_post_finished(connection_handle_iterator connit,
                                 const std::shared_ptr<p2u::nntp::article>& msg,
                                 p2u::nntp::post_result post_result)
@@ -167,31 +205,27 @@ void p2u::nntp::usenet::on_post_finished(connection_handle_iterator connit,
 
     if (post_result == p2u::nntp::post_result::POSTING_NOT_PERMITTED)
     {
-        // TODO
-        // We can't post on this connection. For now, we will consider this
-        // an unrecoverable error on the user's part. Abort the program here.
-        throw std::runtime_error{"Posting not permitted on one of our connections"};
+        std::cerr << "[ERROR] Posting not permitted on one of our connections. Disconnecting and hoping that someone else can do our job..." << std::endl;
+        (*connit)->close();
+
+        discard_connection(connit);
+        dispatch_or_queue(std::bind(&p2u::nntp::usenet::start_async_post, this, std::placeholders::_1, msg));
     }
     else if (post_result == p2u::nntp::post_result::POST_FAILURE)
     {
-        // Retry the post
-        std::cout << "[WARN] Post failure on " << msg->get_header().subject << ". Retrying... " << std::endl;
-        (*connit)->async_post(msg);
+        if (m_slot_post_failed)
+        {
+            m_slot_post_failed(msg);
+        }
+        on_conn_becomes_ready(connit);
     }
     else if (post_result ==
             p2u::nntp::post_result::POST_FAILURE_CONNECTION_ERROR)
     {
 
-        std::cout << "[ERROR] Fatal connection error occurred. Requeueing " << msg->get_header().subject << " and attempting to reconnect.. " << std::endl;
-        std::lock_guard<std::mutex> _lock{m_bfm};
-        // Yes, we could be violating the "max queue" size here, but at this
-        // point it doesn't matter. So what if the queue size is slightly bigger?
-        // We need to make sure that this post gets handled.
-        //
-        m_queue.push_front(std::bind(&p2u::nntp::usenet::start_async_post, this, std::placeholders::_1, msg));
-
+        std::cerr << "[ERROR] Fatal connection error occurred. Requeueing " << msg->get_header().subject << " and attempting to reconnect.. " << std::endl;
+        dispatch_or_queue(std::bind(&p2u::nntp::usenet::start_async_post, this, std::placeholders::_1, msg));
         (*connit)->close();
-
         (*connit)->async_connect();
     }
     else
@@ -226,12 +260,17 @@ void p2u::nntp::usenet::start()
     }
 }
 
-void p2u::nntp::usenet::set_post_finished_callback(on_finish_post func)
+void p2u::nntp::usenet::set_post_failed_callback(const post_event_callback& func)
+{
+    m_slot_post_failed = func;
+}
+
+void p2u::nntp::usenet::set_post_finished_callback(const post_event_callback& func)
 {
     m_slot_finish_post = func;
 }
 
-void p2u::nntp::usenet::set_stat_finished_callback(on_finish_stat func)
+void p2u::nntp::usenet::set_stat_finished_callback(const on_finish_stat& func)
 {
     m_slot_finish_stat = func;
 }

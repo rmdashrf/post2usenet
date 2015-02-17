@@ -49,7 +49,7 @@ std::string fileset::get_usenet_subject(const std::string& subject, size_t fileI
     return stream.str();
 }
 
-std::string fileset::get_usenet_message_id(const std::string& nonce, size_t fileIndex, size_t pieceIndex) const
+std::string fileset::get_usenet_message_id(const std::string& nonce, size_t fileIndex, size_t pieceIndex)
 {
     std::ostringstream stream;
     stream << "<" << nonce << "." << fileIndex << "." << pieceIndex << "@post2usenet>";
@@ -65,4 +65,33 @@ size_t fileset::get_total_pieces() const
     }
 
     return ret;
+}
+
+filepiece_key fileset::get_key_from_message_id(const std::string& msgid)
+{
+    filepiece_key ret;
+
+    size_t firstDot = msgid.find('.');
+    assert(firstDot != std::string::npos);
+
+    size_t secondDot = msgid.find('.', firstDot + 1);
+    assert(secondDot != std::string::npos);
+
+    size_t atsep = msgid.find('@', secondDot + 1);
+
+    ret.file_index = std::stoul(msgid.substr(firstDot + 1, secondDot - (firstDot + 1)));
+    ret.piece_index = std::stoul(msgid.substr(secondDot + 1, atsep - (secondDot + 1)));
+
+    return ret;
+
+}
+
+bool filepiece_key::operator<(const filepiece_key& rhs) const
+{
+    if (file_index < rhs.file_index)
+        return true;
+    else if (file_index > rhs.file_index)
+        return false;
+    else
+        return piece_index < rhs.piece_index;
 }

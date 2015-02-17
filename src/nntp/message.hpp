@@ -27,6 +27,7 @@ namespace p2u
             std::string from;
             std::vector<std::string> newsgroups;
             std::string subject;
+            std::string msgid;
             std::vector<element> additional;
 
             void write_to(std::ostream& stream) const;

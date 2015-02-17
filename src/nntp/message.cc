@@ -8,6 +8,11 @@ void p2u::nntp::header::write_to(std::ostream& stream) const
     stream << "Newsgroups: " << boost::algorithm::join(newsgroups, ",") << "\r\n";
     stream << "Subject: " << subject << "\r\n";
 
+    if (msgid.length())
+    {
+        stream << "Message-ID: " << msgid << "\r\n";
+    }
+
     for (const auto& element : additional)
     {
         stream << element.field << ": " << element.value << "\r\n";
