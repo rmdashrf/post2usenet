@@ -158,11 +158,30 @@ namespace p2u
                  * and the queue is == max queue size, this will block the
                  * caller
                  */
+
+                // TODO: Make these functions delgate to a generic function
+                // template <class F, class Args...>
+                // void execute_or_defer(F func, Args... args);
                 void enqueue_post(const std::shared_ptr<article>& msg, bool bypass_wait=false);
                 void enqueue_stat(const std::string& msgid);
+
                 void set_post_finished_callback(const post_event_callback& func);
                 void set_post_failed_callback(const post_event_callback& func);
                 void set_stat_finished_callback(const on_finish_stat& func);
+
+                /**
+                 * Note: This method's interface is inherently racy. The caller
+                 * should call this method *AFTER* he has joined() with us,
+                 * since at that point, no more connections will be affecting
+                 * the queue size.
+                 *
+                 * This method serves as an indicator of whether or not the
+                 * caller's * requested operations were all complete. A queue
+                 * size that is >0 means that the async workers all died when
+                 * there was still work to be done... indicating a fatal error
+                 * occurred somewhere that was not recoverable
+                 */
+                size_t get_queue_size() const;
 
                 void start();
                 void stop();

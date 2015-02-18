@@ -27,6 +27,7 @@ const std::string p2u::nntp::protocol::POST{"POST\r\n"};
 const std::string p2u::nntp::protocol::AUTHINFOUSER{"AUTHINFO USER "};
 const std::string p2u::nntp::protocol::AUTHINFOPASS{"AUTHINFO PASS "};
 const std::string p2u::nntp::protocol::STAT{"STAT "};
+const std::string p2u::nntp::protocol::QUIT{"QUIT\r\n"};
 
 p2u::nntp::connection::connection(boost::asio::io_service& io_service,
                                   const connection_info& conn)
@@ -252,11 +253,12 @@ void p2u::nntp::connection::async_connect()
 void p2u::nntp::connection::post_handler_callback(post_result result)
 {
     m_state = state::CONNECTED_AND_AUTHENTICATED;
-    get_io_service().post([this, result, article=this->m_article]()
+    auto article_copy = m_article;
+    get_io_service().post([this, article_copy, result]()
             {
                 if (m_posthandler)
                 {
-                    m_posthandler(article, result);
+                    m_posthandler(article_copy, result);
                 }
             });
 
@@ -376,11 +378,12 @@ bool p2u::nntp::connection::async_post(const std::shared_ptr<article>& message)
 void p2u::nntp::connection::stat_handler_callback(stat_result result)
 {
     m_state = state::CONNECTED_AND_AUTHENTICATED;
-    get_io_service().post([this, msgid=this->m_msgid, result]()
+    auto msgid_copy = m_msgid;
+    get_io_service().post([this, msgid_copy, result]()
             {
                 if (m_stathandler)
                 {
-                    m_stathandler(msgid, result);
+                    m_stathandler(msgid_copy, result);
                 }
                 else
                 {
@@ -487,3 +490,19 @@ void p2u::nntp::connection::cancel_sock_operation(const boost::system::error_cod
     }
 }
 
+
+void p2u::nntp::connection::async_graceful_disconnect()
+{
+    if (m_state == state::CONNECTED_AND_AUTHENTICATED)
+    {
+        m_state = state::BUSY;
+        write(boost::asio::buffer(p2u::nntp::protocol::QUIT), [this](const boost::system::error_code& ec,size_t)
+                {
+                    close();
+                });
+    }
+    else
+    {
+        assert(false);
+    }
+}

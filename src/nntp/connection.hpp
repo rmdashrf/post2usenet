@@ -22,6 +22,7 @@ namespace p2u
             extern const std::string AUTHINFOUSER;
             extern const std::string AUTHINFOPASS;
             extern const std::string STAT;
+            extern const std::string QUIT;
         }
 
         class article;
@@ -200,6 +201,8 @@ namespace p2u
 
                 bool async_stat(const std::string& messageid);
                 void close();
+
+                void async_graceful_disconnect();
                 boost::asio::io_service& get_io_service();
                 ~connection();
         };

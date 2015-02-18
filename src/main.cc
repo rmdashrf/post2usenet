@@ -170,6 +170,7 @@ int main(int argc, const char* argv[])
 
     auto post_start = std::chrono::system_clock::now();
 
+    // TODO: We are only dealing with 1 IO thread right now. Guard this in the future
     msgid_exceptions_map msgid_exceptions;
 
     usenet.set_stat_finished_callback([&](const std::string& msgid, p2u::nntp::stat_result result)
@@ -256,23 +257,32 @@ int main(int argc, const char* argv[])
         }
     }
 
-    if (!cfg.nzboutput.empty())
-    {
-        std::ofstream nzboutstream;
-        nzboutstream.open(cfg.nzboutput.c_str());
-        if (!nzboutstream.is_open())
-        {
-            std::cout << "ERROR: Cannot open " << cfg.nzboutput << " for writing. Nzb output discarded." << std::endl;
-        }
-        else
-        {
-            write_nzb(nzboutstream, postitems, cfg, piece_sizes, run_nonce, msgid_exceptions);
-        }
-    }
-
     usenet.stop();
     usenet.join();
 
-    return 0;
+    if (usenet.get_queue_size() == 0)
+    {
+        if (!cfg.nzboutput.empty())
+        {
+            std::ofstream nzboutstream;
+            nzboutstream.open(cfg.nzboutput.c_str());
+            if (!nzboutstream.is_open())
+            {
+                std::cout << "ERROR: Cannot open " << cfg.nzboutput << " for writing. Nzb output discarded." << std::endl;
+            }
+            else
+            {
+                write_nzb(nzboutstream, postitems, cfg, piece_sizes, run_nonce, msgid_exceptions);
+            }
+        }
+        return 0;
+    }
+    else
+    {
+        std::cout << "ERROR: Workers died when there was still work for them to do!. " << std::endl;
+        return 1;
+    }
+
+
 }
 

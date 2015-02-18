@@ -116,6 +116,22 @@ void p2u::nntp::usenet::on_conn_becomes_ready(connection_handle_iterator connit)
         // There is no work for us to do at the moment, Let's put ourself back
         // into the ready queue
         m_ready.splice(m_ready.end(), m_busy, connit);
+
+        if (!m_work && m_queue.size() == 0 && m_busy.size() == 0)
+        {
+            auto& conn = *connit;
+            conn->async_graceful_disconnect();
+            m_busy.erase(connit);
+
+            for (auto readyconnit = m_ready.begin(); readyconnit != m_ready.end();)
+            {
+
+                (*readyconnit)->async_graceful_disconnect();
+                readyconnit = m_ready.erase(readyconnit);
+
+            }
+            std::cerr << "[INFO] Gracefully disconnecting connection. Number of connections left: " << m_busy.size() + m_ready.size() << std::endl;
+        }
     }
 }
 
@@ -279,6 +295,13 @@ void p2u::nntp::usenet::set_stat_finished_callback(const on_finish_stat& func)
 {
     m_slot_finish_stat = func;
 }
+
+size_t p2u::nntp::usenet::get_queue_size() const
+{
+    // Intentionally NOT guarding it with a mutex, see note in header
+    return m_queue.size();
+}
+
 
 void p2u::nntp::usenet::add_connections(const p2u::nntp::connection_info& conninfo,
                                         size_t num_connections)
