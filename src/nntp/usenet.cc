@@ -62,7 +62,7 @@ void p2u::nntp::usenet::enqueue_stat(const std::string& msgid)
     m_queue.push_back(std::bind(&p2u::nntp::usenet::start_async_stat, this, std::placeholders::_1, msgid));
 }
 
-void p2u::nntp::usenet::enqueue_post(const std::shared_ptr<p2u::nntp::article>& msg)
+void p2u::nntp::usenet::enqueue_post(const std::shared_ptr<p2u::nntp::article>& msg, bool bypass_wait)
 {
     std::unique_lock<std::mutex> _lock{m_bfm};
 
@@ -80,12 +80,14 @@ void p2u::nntp::usenet::enqueue_post(const std::shared_ptr<p2u::nntp::article>& 
         return;
     }
 
-    if (m_maxsize != 0 && m_queue.size() >= m_maxsize)
+    if (!bypass_wait)
     {
-        m_queuecv.wait(_lock,
-                [this](){return m_queue.size() < m_maxsize;});
+        if (m_maxsize != 0 && m_queue.size() >= m_maxsize)
+        {
+            m_queuecv.wait(_lock,
+                    [this](){return m_queue.size() < m_maxsize;});
+        }
     }
-
     // Defer the start_async_post to a connection that will become ready.
     m_queue.push_back(std::bind(&p2u::nntp::usenet::start_async_post, this, std::placeholders::_1, msg));
 }
@@ -191,9 +193,12 @@ void p2u::nntp::usenet::discard_connection(connection_handle_iterator conn)
     std::lock_guard<std::mutex> _lock{m_bfm};
     m_busy.erase(conn);
 
+    std::cerr << "[INFO] Number of connections left: " << m_busy.size() + m_ready.size() << std::endl;
+
     if (m_busy.size() == 0 && m_ready.size() == 0)
     {
         // We have no more connections to work with, so we can't do any work
+        std::cerr << "[FATAL] No more connections to work with. " << std::endl;
         m_work.reset();
     }
 }

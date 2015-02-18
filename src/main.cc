@@ -187,7 +187,8 @@ int main(int argc, const char* argv[])
                 msgid_exceptions[key] = get_run_nonce(NONCE_LENGTH);
                 const_cast<p2u::nntp::header&>(article->get_header()).msgid =
                     fileset::get_usenet_message_id(msgid_exceptions[key], key.file_index, key.piece_index);
-                usenet.enqueue_post(article);
+                usenet.enqueue_post(article, true);
+                std::cerr << "[INFO] Requeued post " << article->get_header().subject << " with message id " << article->get_header().msgid << std::endl;
             });
 
     usenet.set_post_finished_callback([&](const std::shared_ptr<p2u::nntp::article>& article)

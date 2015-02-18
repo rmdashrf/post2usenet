@@ -158,7 +158,7 @@ namespace p2u
                  * and the queue is == max queue size, this will block the
                  * caller
                  */
-                void enqueue_post(const std::shared_ptr<article>& msg);
+                void enqueue_post(const std::shared_ptr<article>& msg, bool bypass_wait=false);
                 void enqueue_stat(const std::string& msgid);
                 void set_post_finished_callback(const post_event_callback& func);
                 void set_post_failed_callback(const post_event_callback& func);
