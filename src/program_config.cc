@@ -93,6 +93,7 @@ static void read_configuration_file(const boost::filesystem::path& path,
     read_nonzero_string(global_section, "From", cfg.from);
     read_numeric_value(global_section, "ArticleSize", cfg.article_size);
     read_numeric_value(global_section, "ArticleQueueSize", cfg.queue_size);
+    read_numeric_value(global_section, "OperationTimeout", cfg.operation_timeout);
 
     // Read server configurations
     for (auto& section : pt)

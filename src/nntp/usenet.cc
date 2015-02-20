@@ -117,7 +117,7 @@ void p2u::nntp::usenet::on_conn_becomes_ready(connection_handle_iterator connit)
         // into the ready queue
         m_ready.splice(m_ready.end(), m_busy, connit);
 
-        if (!m_work && m_queue.size() == 0 && m_busy.size() == 0)
+        if (!m_work && m_queue.size() == 0)
         {
             auto& conn = *connit;
             conn->async_graceful_disconnect();

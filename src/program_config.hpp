@@ -15,6 +15,7 @@ struct prog_config
     size_t article_size;
     size_t io_threads;
     size_t queue_size;
+    int operation_timeout;
     bool validate_posts;
     bool raw;
     std::vector<boost::filesystem::path> files;

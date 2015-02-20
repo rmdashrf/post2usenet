@@ -120,6 +120,8 @@ namespace p2u
 
                 std::string m_msgid;
 
+                int m_timeout;
+
                 void do_connect();
 
                 void do_authenticate();
@@ -135,7 +137,7 @@ namespace p2u
                 void read_line(CompletionHandler handler)
                 {
 
-                    //timeout_next_async_operation(5);
+                    timeout_next_async_operation(m_timeout);
                     auto _dispatch = [this,handler](const boost::system::error_code& ec, const std::string& line)
                     {
                         if (!ec)
@@ -161,7 +163,7 @@ namespace p2u
                 template <class ConstBufferSequence, class CompletionHandler>
                 void write(const ConstBufferSequence& buffers, CompletionHandler completion_handler)
                 {
-                    //timeout_next_async_operation(5);
+                    timeout_next_async_operation(m_timeout);
 
                     auto _complete = [this,completion_handler](const boost::system::error_code& ec, size_t bytes_transferred)
                     {
@@ -192,6 +194,8 @@ namespace p2u
                 connection(boost::asio::io_service& io_service,
                            const connection_info& conn);
 
+                connection(boost::asio::io_service& io_service,
+                           const connection_info& conn, int timeout);
                 void set_post_handler(const post_handler& handler);
                 void set_connect_handler(const connect_handler& handler);
                 void set_stat_handler(const stat_handler& handler);

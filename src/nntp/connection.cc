@@ -31,8 +31,15 @@ const std::string p2u::nntp::protocol::QUIT{"QUIT\r\n"};
 
 p2u::nntp::connection::connection(boost::asio::io_service& io_service,
                                   const connection_info& conn)
+    : connection{io_service, conn, 0}
+{
+
+}
+
+p2u::nntp::connection::connection(boost::asio::io_service& io_service,
+                                  const connection_info& conn, int timeout)
     : m_sock {io_service}, m_resolver{io_service}, m_state {state::DISCONNECTED}, m_conninfo(conn),
-      m_timer{io_service}
+      m_timer{io_service}, m_timeout{timeout}
 {
     if (conn.tls)
     {
@@ -61,6 +68,11 @@ void p2u::nntp::connection::initSSL()
 void p2u::nntp::connection::timeout_next_async_operation(int seconds)
 {
     // Start the timer.
+    if (seconds < 1)
+    {
+        return;
+    }
+
     m_timer.expires_from_now(boost::posix_time::seconds(seconds));
     m_timer.async_wait([this](const boost::system::error_code& ec)
             {
@@ -197,7 +209,7 @@ void p2u::nntp::connection::do_connect()
                 if (!ec)
                 {
                     tcp::endpoint endpoint(resolvit->endpoint().address(), m_conninfo.port);
-                    timeout_next_async_operation(5);
+                    timeout_next_async_operation(m_timeout);
                     m_sock.async_connect(endpoint, [this](const boost::system::error_code& ec)
                         {
                             if (!ec)
@@ -208,7 +220,7 @@ void p2u::nntp::connection::do_connect()
                                 if (m_sslstream)
                                 {
                                     // Need to handshake first
-                                    timeout_next_async_operation(5);
+                                    timeout_next_async_operation(m_timeout);
                                     m_sslstream->async_handshake(m_sslstream->client,
                                         [this](const boost::system::error_code& ec)
                                         {
