@@ -135,7 +135,7 @@ namespace p2u
                 void read_line(CompletionHandler handler)
                 {
 
-                    timeout_next_async_operation(5);
+                    //timeout_next_async_operation(5);
                     auto _dispatch = [this,handler](const boost::system::error_code& ec, const std::string& line)
                     {
                         if (!ec)
@@ -161,7 +161,7 @@ namespace p2u
                 template <class ConstBufferSequence, class CompletionHandler>
                 void write(const ConstBufferSequence& buffers, CompletionHandler completion_handler)
                 {
-                    timeout_next_async_operation(5);
+                    //timeout_next_async_operation(5);
 
                     auto _complete = [this,completion_handler](const boost::system::error_code& ec, size_t bytes_transferred)
                     {
