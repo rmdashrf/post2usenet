@@ -121,6 +121,7 @@ namespace p2u
                 std::string m_msgid;
 
                 int m_timeout;
+                int m_numtries;
 
                 void do_connect();
 

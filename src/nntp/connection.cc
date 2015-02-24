@@ -91,7 +91,7 @@ void p2u::nntp::connection::send_authinfo_username()
         boost::asio::buffer(protocol::CRLF)
     };
 
-    write(parts, [this](const boost::system::error_code& ec, size_t bytes_transferred)
+    write(parts, [this](const boost::system::error_code& ec, size_t)
             {
                 if (!ec)
                 {
@@ -144,7 +144,7 @@ void p2u::nntp::connection::send_authinfo_password()
         boost::asio::buffer(protocol::CRLF)
     };
 
-    write(parts, [this](const boost::system::error_code& ec, size_t bytes_transferred)
+    write(parts, [this](const boost::system::error_code& ec, size_t)
             {
                 if (!ec)
                 {
@@ -508,7 +508,7 @@ void p2u::nntp::connection::async_graceful_disconnect()
     if (m_state == state::CONNECTED_AND_AUTHENTICATED)
     {
         m_state = state::BUSY;
-        write(boost::asio::buffer(p2u::nntp::protocol::QUIT), [this](const boost::system::error_code& ec,size_t)
+        write(boost::asio::buffer(p2u::nntp::protocol::QUIT), [this](const boost::system::error_code&, size_t)
                 {
                     close();
                 });

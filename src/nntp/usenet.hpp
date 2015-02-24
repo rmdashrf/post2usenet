@@ -22,7 +22,7 @@ namespace p2u
 {
     namespace nntp
     {
-        struct article;
+        class article;
 
         class usenet
         {

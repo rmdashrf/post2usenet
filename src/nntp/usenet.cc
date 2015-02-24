@@ -244,7 +244,6 @@ void p2u::nntp::usenet::on_post_finished(connection_handle_iterator connit,
             p2u::nntp::post_result::POST_FAILURE_CONNECTION_ERROR)
     {
 
-        std::cerr << "[ERROR] Fatal connection error occurred. Requeueing " << msg->get_header().subject << " and attempting to reconnect.. " << std::endl;
         (*connit)->close();
         (*connit)->async_connect();
         if (m_slot_post_failed)

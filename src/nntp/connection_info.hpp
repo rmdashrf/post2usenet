@@ -1,5 +1,5 @@
-#ifndef NNTP_CONNECTINO_INFO_HPP_
-#define NTTP_CONNECTION_INFO_HPP_
+#ifndef NNTP_CONNECTION_INFO_HPP_
+#define NNTP_CONNECTION_INFO_HPP_
 
 #include <cstdint>
 #include <boost/functional/hash.hpp>
