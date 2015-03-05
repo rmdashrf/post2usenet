@@ -110,6 +110,7 @@ namespace p2u
                 // IO threadpool.
                 size_t m_numthreads;
                 std::vector<std::thread> m_iothreads;
+                int m_optimeout;
 
 
                 std::vector<conn_info_element> m_conninfo;
@@ -149,6 +150,8 @@ namespace p2u
 
                 usenet& operator=(usenet& other) = delete;
                 ~usenet();
+
+                void set_operation_timeout(int seconds);
 
                 void add_connections(const connection_info& conninfo,
                                      size_t num_connections);

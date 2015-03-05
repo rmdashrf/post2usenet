@@ -155,12 +155,12 @@ int main(int argc, const char* argv[])
 
 
     p2u::nntp::usenet usenet{cfg.io_threads, cfg.queue_size};
+    usenet.set_operation_timeout(cfg.operation_timeout);
     for (const auto& p : cfg.servers)
     {
         usenet.add_connections(p.first, p.second);
     }
 
-    usenet.start();
     std::string run_nonce = get_run_nonce(NONCE_LENGTH);
 
     size_t num_total_files = postitems.get_num_files();
@@ -213,6 +213,8 @@ int main(int argc, const char* argv[])
                 }
                 std::cout << "STATUS> " << percentage_complete << "% - Pieces Remaining: " << pieces_remaining << " - Average Speed: " << speed_kb << " KB/s" << std::endl;
             });
+
+    usenet.start();
 
     std::vector<piece_size_map> piece_sizes;
 

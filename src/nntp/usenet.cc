@@ -10,7 +10,7 @@ p2u::nntp::usenet::usenet(size_t iothreads)
 }
 
 p2u::nntp::usenet::usenet(size_t iothreads, size_t max_queue_size)
-    : m_maxsize{max_queue_size}, m_numthreads{iothreads}
+    : m_maxsize{max_queue_size}, m_numthreads{iothreads}, m_optimeout{0}
 {
 
 }
@@ -18,6 +18,11 @@ p2u::nntp::usenet::usenet(size_t iothreads, size_t max_queue_size)
 p2u::nntp::usenet::~usenet()
 {
 
+}
+
+void p2u::nntp::usenet::set_operation_timeout(int seconds)
+{
+    m_optimeout = seconds;
 }
 
 void p2u::nntp::usenet::start_async_post(connection_handle_iterator conn,
@@ -315,7 +320,7 @@ void p2u::nntp::usenet::add_connections(const p2u::nntp::connection_info& connin
     for (size_t i = 0; i < num_connections; ++i)
     {
         m_busy.emplace_back(std::make_unique<p2u::nntp::connection>(m_iosvc,
-                    *it.info));
+                    *it.info, m_optimeout));
         auto connit = std::prev(m_busy.end());
         (*connit)->set_post_handler(std::bind(&p2u::nntp::usenet::on_post_finished, this, connit, std::placeholders::_1, std::placeholders::_2));
         (*connit)->set_stat_handler(std::bind(&p2u::nntp::usenet::on_stat_finished, this, connit, std::placeholders::_1, std::placeholders::_2));
