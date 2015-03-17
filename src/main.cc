@@ -187,7 +187,8 @@ int main(int argc, const char* argv[])
                 auto it = msgid_retries.find(key);
                 if (it == msgid_retries.end())
                 {
-                    msgid_retries.insert(std::make_pair(key, 1));
+                    auto inserted = msgid_retries.insert(std::make_pair(key, 1));
+                    it = inserted.first;
                 }
                 else
                 {
@@ -198,6 +199,11 @@ int main(int argc, const char* argv[])
                         std::ostringstream dumpfile;
                         dumpfile << article->get_header().msgid << ".dump";
                         std::ofstream dump{dumpfile.str().c_str(), std::ofstream::binary};
+                        if (!dump.is_open())
+                        {
+                            std::cerr << "[FATAL] Could not open dump file. Discarding.." << std::endl;
+                            std::exit(1);
+                        }
 
                         std::ostringstream header;
                         article->get_header().write_to(header);
@@ -208,6 +214,7 @@ int main(int argc, const char* argv[])
 
                         std::vector<boost::asio::const_buffer> buffers;
                         article->write_payload_asio_buffers(std::back_inserter(buffers));
+                        assert(buffers.size() > 0);
                         for (auto& p : buffers)
                         {
                             const char* buf = boost::asio::buffer_cast<const char*>(p);
