@@ -238,7 +238,6 @@ int main(int argc, const char* argv[])
             header.subject = postitems.get_usenet_subject(cfg.subject, fileIndex, pieceIndex);
             header.msgid = postitems.get_usenet_message_id(run_nonce, fileIndex, pieceIndex);
             std::copy(cfg.groups.begin(), cfg.groups.end(), std::back_inserter(header.newsgroups));
-            header.additional.push_back({"X-Newsposter", "post2usenet"});
 
             auto article = std::make_shared<p2u::nntp::article>(header);
             article->add_payload_piece(std::move(chunk));
