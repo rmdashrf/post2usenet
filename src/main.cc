@@ -209,8 +209,8 @@ int main(int argc, const char* argv[])
                         article->get_header().write_to(header);
 
                         std::string headerstr = header.str();
-                        dumpfile.write(headerstr.c_str(), headerstr.length());
-                        dumpfile.write("\r\n", 2);
+                        dump.write(headerstr.c_str(), headerstr.length());
+                        dump.write("\r\n", 2);
 
                         std::vector<boost::asio::const_buffer> buffers;
                         article->write_payload_asio_buffers(std::back_inserter(buffers));
@@ -219,11 +219,11 @@ int main(int argc, const char* argv[])
                         {
                             const char* buf = boost::asio::buffer_cast<const char*>(p);
                             size_t bufsize = boost::asio::buffer_size(p);
-                            dumpfile.write(buf, bufsize);
+                            dump.write(buf, bufsize);
                         }
 
-                        dumpfile.write("\r\n.\r\n", 5);
-                        dumpfile.flush();
+                        dump.write("\r\n.\r\n", 5);
+                        dump.close();
                         std::exit(1);
                     }
                 }
