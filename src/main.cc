@@ -172,6 +172,7 @@ int main(int argc, const char* argv[])
 
     // TODO: We are only dealing with 1 IO thread right now. Guard this in the future
     msgid_exceptions_map msgid_exceptions;
+    std::map<filepiece_key, int> msgid_retries;
 
     usenet.set_stat_finished_callback([&](const std::string& msgid, p2u::nntp::stat_result result)
             {
@@ -182,9 +183,46 @@ int main(int argc, const char* argv[])
 
     usenet.set_post_failed_callback([&](const std::shared_ptr<p2u::nntp::article>& article)
             {
-                std::cerr << "[WARN] Posting " << article->get_header().subject << " failed. Retrying post.." << std::endl;
-                // Try changing the message id and restarting
                 auto key = fileset::get_key_from_message_id(article->get_header().msgid);
+                auto it = msgid_retries.find(key);
+                if (it == msgid_retries.end())
+                {
+                    msgid_retries.insert(std::make_pair(key, 1));
+                }
+                else
+                {
+                    it->second++;
+                    if (it->second >= 3)
+                    {
+                        std::cerr << "[FATAL] Too many retries while posting " << article->get_header().msgid << ". Aborting program!" << std::endl;
+                        std::ostringstream dumpfile;
+                        dumpfile << article->get_header().msgid << ".dump";
+                        std::ofstream dump{dumpfile.str().c_str(), std::ofstream::binary};
+
+                        std::ostringstream header;
+                        article->get_header().write_to(header);
+
+                        std::string headerstr = header.str();
+                        dumpfile.write(headerstr.c_str(), headerstr.length());
+                        dumpfile.write("\r\n", 2);
+
+                        std::vector<boost::asio::const_buffer> buffers;
+                        article->write_payload_asio_buffers(std::back_inserter(buffers));
+                        for (auto& p : buffers)
+                        {
+                            const char* buf = boost::asio::buffer_cast<const char*>(p);
+                            size_t bufsize = boost::asio::buffer_size(p);
+                            dumpfile.write(buf, bufsize);
+                        }
+
+                        dumpfile.write("\r\n.\r\n", 5);
+                        dumpfile.flush();
+                        std::exit(1);
+                    }
+                }
+
+                std::cerr << "[WARN] Posting " << article->get_header().subject << " failed. Retry #" << it->second << std::endl;
+                // Try changing the message id and restarting
                 msgid_exceptions[key] = get_run_nonce(NONCE_LENGTH);
                 const_cast<p2u::nntp::header&>(article->get_header()).msgid =
                     fileset::get_usenet_message_id(msgid_exceptions[key], key.file_index, key.piece_index);
