@@ -230,10 +230,31 @@ int main(int argc, const char* argv[])
 
                 std::cerr << "[WARN] Posting " << article->get_header().subject << " failed. Retry #" << it->second << std::endl;
                 // Try changing the message id and restarting
+
+                auto& header = const_cast<p2u::nntp::header&>(article->get_header());
+
+                // Add some random data to the header to be sent.
+                //
+                // Why you ask? For some reason, certain news providers (ahem highwinds) have
+                // this stupid bug where if you try to post a certain message, it will *always* timeout
+                //
+                // Like, not even fail to post, just time out.
+                //
+                // This makes it *extremely* annoying to deal with (and it is the entire reason why I have
+                // logic that "times out" a news post")
+                //
+                // And even worse, when they time out, *even* after I change the message ID to avoid a possibility
+                // of duping a previous post, it *still* fails to post. The one method I found to seemingly work is
+                // to append some random data in the header.
+                header.additional.push_back({get_run_nonce(10), get_run_nonce(5)});
+
+                // Change the message ID of this part
                 msgid_exceptions[key] = get_run_nonce(NONCE_LENGTH);
-                const_cast<p2u::nntp::header&>(article->get_header()).msgid =
-                    fileset::get_usenet_message_id(msgid_exceptions[key], key.file_index, key.piece_index);
+                header.msgid = fileset::get_usenet_message_id(msgid_exceptions[key], key.file_index, key.piece_index);
+
+                // Enqueue it back on
                 usenet.enqueue_post(article, true);
+
                 std::cerr << "[INFO] Requeued post " << article->get_header().subject << " with message id " << article->get_header().msgid << std::endl;
             });
 
@@ -306,6 +327,8 @@ int main(int argc, const char* argv[])
     usenet.stop();
     usenet.join();
 
+    // If we've reached here without fully dispensing all items in our queue, this means that the program
+    // prematurely stopped.
     if (usenet.get_queue_size() == 0)
     {
         if (!cfg.nzboutput.empty())
@@ -325,7 +348,7 @@ int main(int argc, const char* argv[])
     }
     else
     {
-        std::cout << "ERROR: Workers died when there was still work for them to do!. " << std::endl;
+        std::cout << "[ERROR] Workers died when there was still work for them to do!. " << std::endl;
         return 1;
     }
 
