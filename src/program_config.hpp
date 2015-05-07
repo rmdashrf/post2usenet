@@ -12,6 +12,7 @@ struct prog_config
     std::string from;
     std::vector<std::pair<p2u::nntp::connection_info, int>> servers;
     std::string subject;
+    std::string msgiddomain;
     size_t article_size;
     size_t io_threads;
     size_t queue_size;

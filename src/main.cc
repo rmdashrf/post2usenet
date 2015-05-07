@@ -71,7 +71,7 @@ void write_nzb(std::ostream& stream, const fileset& files, const prog_config& cf
 
             auto exception_it = exceptions.find({i, pieceIndex});
             const auto& actual_nonce = exception_it == exceptions.end() ? nonce : exception_it->second;
-            auto msg_id = fileset::get_usenet_message_id(actual_nonce, i, pieceIndex);
+            auto msg_id = fileset::get_usenet_message_id(actual_nonce, cfg.msgiddomain, i, pieceIndex);
             boost::algorithm::replace_all(msg_id, "<", "");
             boost::algorithm::replace_all(msg_id, ">", "");
 
@@ -246,11 +246,13 @@ int main(int argc, const char* argv[])
                 // And even worse, when they time out, *even* after I change the message ID to avoid a possibility
                 // of duping a previous post, it *still* fails to post. The one method I found to seemingly work is
                 // to append some random data in the header.
-                header.additional.push_back({get_run_nonce(10), get_run_nonce(5)});
+                std::string random_data_header_key{"X-Random-"};
+                random_data_header_key += get_run_nonce(10);
+                header.additional.push_back({random_data_header_key, get_run_nonce(5)});
 
                 // Change the message ID of this part
                 msgid_exceptions[key] = get_run_nonce(NONCE_LENGTH);
-                header.msgid = fileset::get_usenet_message_id(msgid_exceptions[key], key.file_index, key.piece_index);
+                header.msgid = fileset::get_usenet_message_id(msgid_exceptions[key], cfg.msgiddomain, key.file_index, key.piece_index);
 
                 // Enqueue it back on
                 usenet.enqueue_post(article, true);
@@ -302,7 +304,7 @@ int main(int argc, const char* argv[])
 
             header.from = cfg.from;
             header.subject = postitems.get_usenet_subject(cfg.subject, fileIndex, pieceIndex);
-            header.msgid = postitems.get_usenet_message_id(run_nonce, fileIndex, pieceIndex);
+            header.msgid = postitems.get_usenet_message_id(run_nonce, cfg.msgiddomain, fileIndex, pieceIndex);
             std::copy(cfg.groups.begin(), cfg.groups.end(), std::back_inserter(header.newsgroups));
 
             auto article = std::make_shared<p2u::nntp::article>(header);
@@ -319,7 +321,7 @@ int main(int argc, const char* argv[])
             size_t num_pieces = postitems.get_num_pieces(fileIndex);
             for (size_t pieceIndex = 0; pieceIndex < num_pieces; ++pieceIndex)
             {
-                usenet.enqueue_stat(postitems.get_usenet_message_id(run_nonce, fileIndex, pieceIndex));
+                usenet.enqueue_stat(postitems.get_usenet_message_id(run_nonce, cfg.msgiddomain, fileIndex, pieceIndex));
             }
         }
     }

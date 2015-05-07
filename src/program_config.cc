@@ -26,6 +26,14 @@ static void read_nonzero_string(boost::property_tree::ptree& ptree,
     }
 }
 
+static void read_optional_string(boost::property_tree::ptree& ptree, const std::string& key, std::string& dst)
+{
+    auto it = ptree.find(key);
+    if (it == ptree.not_found())
+        return;
+    dst = it->second.get_value<std::string>();
+}
+
 static void read_boolean_value(boost::property_tree::ptree& ptree,
                                const std::string& key,
                                bool& dst)
@@ -94,6 +102,11 @@ static void read_configuration_file(const boost::filesystem::path& path,
     read_numeric_value(global_section, "ArticleSize", cfg.article_size);
     read_numeric_value(global_section, "ArticleQueueSize", cfg.queue_size);
     read_numeric_value(global_section, "OperationTimeout", cfg.operation_timeout);
+    read_optional_string(global_section, "MsgIdDomain", cfg.msgiddomain);
+
+    if (cfg.msgiddomain.empty()) {
+        cfg.msgiddomain = "post2usenet";
+    }
 
     // Read server configurations
     for (auto& section : pt)

@@ -49,10 +49,10 @@ std::string fileset::get_usenet_subject(const std::string& subject, size_t fileI
     return stream.str();
 }
 
-std::string fileset::get_usenet_message_id(const std::string& nonce, size_t fileIndex, size_t pieceIndex)
+std::string fileset::get_usenet_message_id(const std::string& nonce, const std::string& domain, size_t fileIndex, size_t pieceIndex)
 {
     std::ostringstream stream;
-    stream << "<" << nonce << "." << fileIndex << "." << pieceIndex << "@post2usenet>";
+    stream << "<" << nonce << "." << fileIndex << "." << pieceIndex << "@" << domain << ">";
     return stream.str();
 }
 
